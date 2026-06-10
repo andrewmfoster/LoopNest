@@ -1,0 +1,35 @@
+# Build output
+build/
+build-release/
+
+# Release packaging artifacts (regenerable from a Release build)
+/release-stage/
+/LoopNest */
+/LoopNest-*-macOS.zip
+
+# macOS cruft
+.DS_Store
+
+# Portable note containing personal identifiers (gmail + machine hostname) —
+# kept on disk for reference but never committed.
+email-scrub-prompt.md
+
+# Project docs + design assets — kept on disk for reference, not committed.
+# The repo tracks plugin code only (Source/, CMakeLists.txt, fonts/, CLAUDE.md,
+# README.md + the two assets it references: icon/loopnest-banner.png and
+# screenshots/loopnest-ui.png).
+/STATUS.md
+/HANDOFF.md
+/NEST-PIVOT.md
+/Screenshot*.png
+/loopnest_logo_matrix.pdf
+/ableton_one_thing_kodh_dice.md
+/vibe_coding_vst_transcript.md
+/docs/
+/mockups/
+
+# Art sources + retired spec — kept on disk for reference, not committed.
+/icon/icon.png
+/icon/loopnest-social.png
+/icon/banner.src.html
+/tools/
