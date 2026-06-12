@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/Ableton%20%C2%B7%20Logic%20%C2%B7%20Reaper%20%C2%B7%20Bitwig-111?logo=abletonlive&logoColor=white" alt="Ableton · Logic · Reaper · Bitwig">
   <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-333?logo=apple&logoColor=white" alt="macOS Apple Silicon">
   <img src="https://img.shields.io/badge/version-1.0.0-b84428" alt="v1.0.0">
+  <img src="https://img.shields.io/badge/license-MIT-1a8f8a" alt="MIT license">
 </p>
 
 ---
@@ -117,3 +118,9 @@ LoopNest/
 Monochrome engineering blueprint: thin white/grey line-art on near-black with a
 single teal accent. Type is bundled JetBrains Mono; the wordmark and logo are
 hand-drawn vectors (nested hexagons — a nest in a nest).
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Andrew Foster.
+
+Bundled JetBrains Mono is licensed separately under the SIL Open Font License.
