@@ -3,8 +3,8 @@ project(LoopNest VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# JUCE lives alongside this project inside the ClaudeCodeVault folder.
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../JUCE JUCE)
+# JUCE is vendored inside this project (per-project checkout).
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
 
 # LoopNest is a self-generating instrument that ignores MIDI for sound: it
 # sits on a track, auditions its loop via a UI Play button, and exports via
