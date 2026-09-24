@@ -566,6 +566,11 @@ void LoopNestProcessor::setSampleFolder(const juce::File& folder)
     rememberDefaultFolder(folder); // becomes the default for future fresh instances
 }
 
+// One audio-extension list for both the spin scan (rescanFolder) and the drum
+// extractor's gather — if they differ, the extractor copies in loops spin can
+// never pick. loadSample decodes all of these (CoreAudioFormat handles .mp3).
+static constexpr const char* kAudioFileWildcard = "*.wav;*.aiff;*.aif;*.mp3";
+
 // App-level settings file, shared by every LoopNest instance (not per-project):
 // ~/Library/Application Support/LoopNest/LoopNest.settings.
 static juce::PropertiesFile::Options settingsFileOptions()
@@ -618,7 +623,7 @@ void LoopNestProcessor::rescanFolder()
         // thread unbounded — the cap is a backstop, not a license to point it at /.
         constexpr int kMaxScan = 20000;
         for (const auto& entry : juce::RangedDirectoryIterator(
-                 folder, true, "*.wav;*.aiff;*.aif", juce::File::findFiles))
+                 folder, true, kAudioFileWildcard, juce::File::findFiles))
         {
             if (entry.getFile().isSymbolicLink())
                 continue;
@@ -762,7 +767,7 @@ void LoopNestProcessor::runExtraction(juce::File src, juce::File dest)
     // --- Gather candidates first (excluding our own output + AppleDouble) -----
     juce::Array<juce::File> candidates;
     for (const auto& entry : juce::RangedDirectoryIterator(
-             src, true, "*.wav;*.aiff;*.aif;*.mp3", juce::File::findFiles))
+             src, true, kAudioFileWildcard, juce::File::findFiles))
     {
         if (bail()) { extracting.store(false); return; }
         const auto f = entry.getFile();
@@ -863,7 +868,10 @@ void LoopNestProcessor::runExtraction(juce::File src, juce::File dest)
     // editor timer polls it AND we callAsync it (lifetime-guarded) so finishing
     // with the window closed still adopts — otherwise a save-and-close mid-scan
     // strands the adoption until the editor reopens.
-    if (! cancelled)
+    // Only adopt when the folder now holds usable loops (newly kept, or already
+    // curated from a prior run). A zero-result run must not swap the user's stash
+    // for an empty folder — setSampleFolder would also save it as the default.
+    if (! cancelled && kept + skipped > 0)
     {
         curatedFolder = outDir;
         adoptPending.store(true);
@@ -915,7 +923,10 @@ bool LoopNestProcessor::loadSample(const juce::File& file)
     {
         return false;
     }
-    reader->read(&temp, 0, (int) reader->lengthInSamples, 0, true, true);
+    // A truncated/failed read would leave a buffer that looks loaded but holds
+    // incomplete audio — treat it as a failed load, same as the checks above.
+    if (! reader->read(&temp, 0, (int) reader->lengthInSamples, 0, true, true))
+        return false;
 
     {
         const juce::SpinLock::ScopedLockType lock(sampleLock);
@@ -985,7 +996,18 @@ juce::File LoopNestProcessor::renderLoop()
     if (numOut <= 0)
         return {};
 
-    juce::AudioBuffer<float> out(outChannels, numOut);
+    // Same guard as loadSample: a long file pitched down (-12 st doubles numOut)
+    // can ask for a big block, and a bad_alloc out of a click handler takes the
+    // host down with us.
+    juce::AudioBuffer<float> out;
+    try
+    {
+        out.setSize(outChannels, numOut);
+    }
+    catch (const std::bad_alloc&)
+    {
+        return {};
+    }
     out.clear();
 
     // The looped audition never resets the chain at the trim seam, so echo/reverb
@@ -1047,19 +1069,40 @@ juce::File LoopNestProcessor::renderLoop()
     const auto stamp = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
     auto file = dir.getNonexistentChildFile(base + "_LoopNest_" + stamp, ".wav");
 
+    // 32-bit float, not 24-bit int: the int writer clamps at 0 dBFS, while the
+    // audition goes to the host as float and never clips. A hot loop + INPUT/OUTPUT
+    // gain + ECHO/WIDTH can peak over 0 dBFS; float keeps the overs so the print
+    // matches what was heard (the DAW fader brings it down, same as the audition).
     juce::WavAudioFormat wav;
-    std::unique_ptr<juce::FileOutputStream> stream(file.createOutputStream());
+    std::unique_ptr<juce::OutputStream> stream(file.createOutputStream());
     if (stream == nullptr)
+    {
+        file.deleteFile();   // createOutputStream may have created it before failing
         return {};
+    }
 
-    std::unique_ptr<juce::AudioFormatWriter> writer(
-        wav.createWriterFor(stream.get(), srcSR, (unsigned int) outChannels, 24, {}, 0));
+    // On success the writer takes the stream and nulls `stream`; on failure it's
+    // left with us and freed on scope exit.
+    auto writer = wav.createWriterFor(stream,
+                                      juce::AudioFormatWriterOptions{}
+                                          .withSampleRate(srcSR)
+                                          .withNumChannels(outChannels)
+                                          .withBitsPerSample(32)
+                                          .withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::floatingPoint));
     if (writer == nullptr)
+    {
+        stream.reset();      // close before deleting — no 0-byte leftovers in Prints
+        file.deleteFile();
         return {};
+    }
 
-    stream.release(); // the writer owns the stream now
-    writer->writeFromAudioSampleBuffer(out, 0, out.getNumSamples());
+    const bool ok = writer->writeFromAudioSampleBuffer(out, 0, out.getNumSamples());
     writer.reset();   // flush + close
+    if (! ok)
+    {
+        file.deleteFile();   // disk full etc. — never arm a truncated render
+        return {};
+    }
 
     {
         const juce::ScopedLock sl(stateLock);

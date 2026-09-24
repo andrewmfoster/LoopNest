@@ -54,11 +54,11 @@ straight onto a track. Chopping and tempo-warping are your DAW's job after the d
 
 ## Build
 
-JUCE is referenced as a sibling folder (`../JUCE`), so clone both side by side:
+JUCE is vendored as a pinned git submodule at `./JUCE`, so clone with submodules
+(or run `git submodule update --init` in an existing clone):
 
 ```bash
-git clone https://github.com/juce-framework/JUCE.git
-git clone https://github.com/andrewmfoster/LoopNest.git
+git clone --recurse-submodules https://github.com/andrewmfoster/LoopNest.git
 cd LoopNest
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug

@@ -59,9 +59,27 @@ target_link_libraries(LoopNest PRIVATE
     juce::juce_recommended_warning_flags
 )
 
-# Ship the JetBrains Mono license inside the bundle — the SIL OFL requires the
+# Ship the JetBrains Mono license inside both bundles — the SIL OFL requires the
 # license text to accompany the font wherever it's distributed.
 add_custom_command(TARGET LoopNest_VST3 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/fonts/OFL.txt"
         "$<TARGET_FILE_DIR:LoopNest_VST3>/../Resources/OFL.txt")
+add_custom_command(TARGET LoopNest_AU POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_BUNDLE_CONTENT_DIR:LoopNest_AU>/Resources"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/fonts/OFL.txt"
+        "$<TARGET_BUNDLE_CONTENT_DIR:LoopNest_AU>/Resources/OFL.txt")
+
+# Re-seal both bundles last. JUCE signs at link time, then its own POST_BUILD
+# step writes moduleinfo.json into the VST3, and the OFL copy above mutates both
+# bundles — leaving a stale seal Ableton silently rejects. POST_BUILD commands run
+# in the order they're added, and juce_add_plugin registered JUCE's (moduleinfo
+# included) above, so these run after everything else. The install-time re-sign
+# in CLAUDE.md stays as belt-and-braces.
+foreach(fmt VST3 AU)
+    add_custom_command(TARGET LoopNest_${fmt} POST_BUILD
+        COMMAND codesign -s - --force --deep "$<TARGET_BUNDLE_DIR:LoopNest_${fmt}>"
+        VERBATIM)
+endforeach()

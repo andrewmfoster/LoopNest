@@ -12,7 +12,8 @@ after the drop.
 
 ## Tech stack
 
-- **Framework:** JUCE (sibling folder `../JUCE`, referenced relatively in CMakeLists.txt)
+- **Framework:** JUCE 8, vendored as a pinned git submodule at `./JUCE` (a fresh clone needs
+  `--recurse-submodules`)
 - **Build:** CMake · **Formats:** VST3 + AU · **Language:** C++17 · **Platform:** macOS arm64
 
 ## Build
