@@ -2202,13 +2202,12 @@ void LoopNestEditor::startExtraction()
 
 void LoopNestEditor::chooseExtractDest(juce::File src)
 {
-    // Open inside the source with an empty name field — the user types a new
-    // folder name (new) or navigates to an existing one (redo). No preset name.
+    // Folder picker opened inside the source: pick an existing folder (redo) or
+    // make one with New Folder. A save panel greyed out Save on an existing folder.
     extractChooser = std::make_unique<juce::FileChooser>(
         "Choose or name the destination folder for the curated loops", src);
     extractChooser->launchAsync(
-        juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectDirectories
-            | juce::FileBrowserComponent::warnAboutOverwriting,
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
         [this, src](const juce::FileChooser& fc)
         {
             auto dest = fc.getResult();
