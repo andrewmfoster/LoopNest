@@ -48,6 +48,9 @@ public:
     std::function<juce::File()> getFile;   // the last rendered loop, or invalid
     void setArmed(bool shouldBeArmed);
     bool isArmed() const { return armed; }
+    // Armed, but params/trim moved since the print: the key stays lit (dimmed),
+    // reads "RE-HATCH", and is NOT a drag source — a click re-renders.
+    void setStale(bool shouldBeStale);
 
     // Play key: show a pause glyph (instead of the play triangle) while the
     // transport is running, so the icon tracks the PLAY/PAUSE label.
@@ -63,6 +66,7 @@ private:
 
     Kind kind;
     bool armed = false;        // a render exists and the key is ready to drag
+    bool stale = false;        // armed render no longer matches the live settings
     bool showPause = false;    // play key currently shows the pause glyph
     bool dragLaunched = false; // gesture already started an external drag
     // PRINT only: 0 = outline (looks like PLAY), 1 = full teal fill (DRAG). Fades in
@@ -288,6 +292,11 @@ public:
 
     std::function<void()> onChooseFolder;
 
+    // Extraction status line: replaces the filename in the header while set. With
+    // `cancellable`, a trailing × is drawn and clicking it fires onCancelExtract.
+    void setStatus(const juce::String& text, bool cancellable);
+    std::function<void()> onCancelExtract;
+
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
@@ -315,6 +324,8 @@ private:
     bool         waveCacheDirty = true;
     float        cacheViewStart = -1.0f, cacheViewEnd = -1.0f;
     juce::String cacheHeaderKey;
+    juce::String statusText;           // see setStatus()
+    bool         statusCancel = false;
 
     enum class Handle { none, start, end };
     Handle dragging = Handle::none;
@@ -452,6 +463,10 @@ private:
     // scope and drop the stale armed render.
     juce::String lastSamplePath;
     juce::String lastStatusSig;       // gate faceplate repaints to real state changes
+    // Extraction status: while running the header shows live progress; after a run
+    // (or an abort) the final string holds for a few seconds so failures are seen.
+    bool         wasExtracting = false;
+    juce::uint32 statusHoldUntil = 0;  // Time::getMillisecondCounter() deadline
 
     std::unique_ptr<juce::FileChooser> chooser;
     std::unique_ptr<juce::FileChooser> extractChooser;  // source/dest pickers for curation

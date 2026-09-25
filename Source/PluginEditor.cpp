@@ -733,12 +733,14 @@ void TransportButton::paintButton(juce::Graphics& g, bool highlighted, bool down
             g.setColour(cLine.withAlpha(0.06f));
             g.fillRoundedRectangle(b, rad);
         }
+        // RE-HATCH (stale render): the muted accent at partial fill, so it still
+        // reads as "a print exists" but clearly isn't the live teal payoff.
         if (armGlow > 0.0f)
         {
-            auto fill = cTeal;
+            auto fill = stale ? cTealDim : cTeal;
             if (down)      fill = fill.darker(0.18f);
             else if (highlighted) fill = fill.brighter(0.10f);
-            g.setColour(fill.withAlpha(armGlow));
+            g.setColour(fill.withAlpha(armGlow * (stale ? 0.45f : 1.0f)));
             g.fillRoundedRectangle(b, rad);
         }
         // Border: white like PLAY, easing to the armed teal-rim treatment as it fills.
@@ -762,10 +764,11 @@ void TransportButton::paintButton(juce::Graphics& g, bool highlighted, bool down
     // the pair centred across the key). Every key has a glyph — including PRINT.
     // PRINT glyph/label rides the fill: cLine while it reads as PLAY, easing to dark
     // (cBgDeep) once the teal fill has glowed in.
-    const auto fg = isPrint ? cLine.withAlpha(0.92f).interpolatedWith(cBgDeep, armGlow)
+    const auto fg = isPrint ? cLine.withAlpha(0.92f).interpolatedWith(cBgDeep, stale ? 0.0f : armGlow)
                             : cLine.withAlpha(active ? 1.0f : 0.92f);
     const juce::Font labelFont = mono(h * 0.38f, true);
-    const juce::String label = isPrint ? (armed ? "DRAG" : "HATCH") : getButtonText();
+    const juce::String label = isPrint ? (armed ? (stale ? "RE-HATCH" : "DRAG") : "HATCH")
+                                       : getButtonText();
     const float textW  = juce::GlyphArrangement::getStringWidth(labelFont, label);
     const float glyphW = h * 0.44f;   // box reserved for the icon
     const float gap    = h * 0.16f;   // icon→text spacing
@@ -819,7 +822,7 @@ void TransportButton::paintButton(juce::Graphics& g, bool highlighted, bool down
                          tip.x - nrm.x * hd * 0.62f, tip.y - nrm.y * hd * 0.62f);
         g.fillPath(head);
     }
-    else if (armed)
+    else if (armed && ! stale)
     {
         // DRAG: arrow pointing right ("drag this loop out to a track").
         const float s = h * 0.24f;
@@ -851,10 +854,19 @@ void TransportButton::setArmed(bool shouldBeArmed)
 {
     if (armed == shouldBeArmed) return;
     armed = shouldBeArmed;
-    setMouseCursor(armed ? juce::MouseCursor::DraggingHandCursor
-                         : juce::MouseCursor::NormalCursor);
+    setMouseCursor(armed && ! stale ? juce::MouseCursor::DraggingHandCursor
+                                    : juce::MouseCursor::NormalCursor);
     // Tween the teal fill in (arming) or out (a new spin/render invalidated it).
     startTimerHz(30);
+    repaint();
+}
+
+void TransportButton::setStale(bool shouldBeStale)
+{
+    if (stale == shouldBeStale) return;
+    stale = shouldBeStale;
+    setMouseCursor(armed && ! stale ? juce::MouseCursor::DraggingHandCursor
+                                    : juce::MouseCursor::NormalCursor);
     repaint();
 }
 
@@ -877,7 +889,7 @@ void TransportButton::mouseDown(const juce::MouseEvent& e)
 void TransportButton::mouseDrag(const juce::MouseEvent& e)
 {
     // Once armed, dragging off PRINT performs the external file drag into Ableton.
-    if (kind == Kind::print && armed && ! dragLaunched && getFile != nullptr)
+    if (kind == Kind::print && armed && ! stale && ! dragLaunched && getFile != nullptr)
     {
         const auto file = getFile();
         if (file.existsAsFile())
@@ -1560,6 +1572,14 @@ void WaveformDisplay::setTrim(const juce::String& id, float v)
     repaint();
 }
 
+void WaveformDisplay::setStatus(const juce::String& text, bool cancellable)
+{
+    if (text == statusText && cancellable == statusCancel) return;
+    statusText   = text;
+    statusCancel = cancellable;
+    repaint();   // the header key below includes the status → cache rebuilds
+}
+
 juce::Rectangle<float> WaveformDisplay::headerArea() const
 {
     auto b = getLocalBounds().toFloat();
@@ -1615,7 +1635,15 @@ bool WaveformDisplay::overHandle(juce::Point<float> p, Handle which) const
 void WaveformDisplay::mouseDown(const juce::MouseEvent& e)
 {
     if (headerArea().contains(e.position))
-        return;  // display-only band; folder switching lives in the top toolbar
+    {
+        // Display-only band, except the × at the right end of a running
+        // extraction's status line (the text is right-aligned, so it sits there).
+        auto hdr = headerArea();
+        if (statusCancel && onCancelExtract != nullptr
+            && e.position.x >= hdr.getRight() - hdr.getHeight() * 1.5f)
+            onCancelExtract();
+        return;  // folder switching lives in the top toolbar
+    }
     if (thumbnail.getTotalLength() <= 0.0) return;
 
     // Alt-drag pans the zoomed view (when zoomed in) without disturbing trim/seek.
@@ -1777,7 +1805,7 @@ void WaveformDisplay::paintChrome(juce::Graphics& g, const juce::String& folder,
         const float folderW   = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), folder);
         const float threshold = folderTextArea.getX() + folderW + hdr.getHeight() * 0.6f;
         auto nameArea = headerArea().withLeft(juce::jmin(threshold, headerArea().getRight()));
-        g.setColour(cLineSoft);
+        g.setColour(statusText.isNotEmpty() ? cTeal : cLineSoft);   // status reads as live
         g.drawText(name, nameArea, juce::Justification::centredRight, true);
     }
 }
@@ -1795,7 +1823,10 @@ void WaveformDisplay::paint(juce::Graphics& g)
             ? (processor.getSampleFolder().getFileName() + "  \xc2\xb7  "
                   + juce::String(processor.getSampleCount()))
             : "No folder set";
-    const auto name = processor.getCurrentSampleName();
+    // An extraction status line takes the filename's slot while it's showing.
+    const auto name = statusText.isNotEmpty()
+        ? statusText + (statusCancel ? "  \xc2\xb7  \xc3\x97" : "")
+        : processor.getCurrentSampleName();
 
     if (thumbnail.getTotalLength() <= 0.0)
     {
@@ -2097,9 +2128,11 @@ LoopNestEditor::LoopNestEditor(LoopNestProcessor& p)
 
     // Re-arm PRINT on reopen: the render survives an editor close (it lives on the
     // processor), so the DRAG key shouldn't forget it.
+    // refresh() then marks it RE-HATCH if the settings moved since that print.
     renderedFile = processor.getLastRender();
     if (renderedFile.existsAsFile())
         printButton.setArmed(true);
+    waveform.onCancelExtract = [this] { processor.cancelExtraction(); refresh(); };
     refresh();
     startTimerHz(30);
 }
@@ -2201,6 +2234,9 @@ void LoopNestEditor::confirmAndExtract(juce::File src, juce::File dest)
     // Additive + non-destructive: existing curated loops are kept, only novel ones
     // are added — so no overwrite confirmation is needed.
     processor.extractDrumLoops(src, dest);
+    // An immediate abort (unusable dest) never starts a run; hold its message too.
+    if (! processor.isExtracting())
+        statusHoldUntil = juce::Time::getMillisecondCounter() + 4000;
     refresh();
 }
 
@@ -2258,6 +2294,25 @@ void LoopNestEditor::refresh()
     extractButton.setEnabled(! busy);
     folderButton.setEnabled(! busy);
 
+    // Extraction status line in the scope header (live progress + cancel; then the
+    // final "N added" / error string holds for ~4 s).
+    const auto nowMs = juce::Time::getMillisecondCounter();
+    if (wasExtracting && ! busy)
+        statusHoldUntil = nowMs + 4000;
+    wasExtracting = busy;
+    if (busy)
+        waveform.setStatus("EXTRACTING "
+                               + juce::String(juce::roundToInt(processor.getExtractProgress() * 100.0f))
+                               + "%  \xc2\xb7  " + juce::String(processor.getExtractKept()) + " kept",
+                           true);
+    else if (statusHoldUntil != 0 && (juce::int32) (statusHoldUntil - nowMs) > 0)
+        waveform.setStatus(processor.getExtractStatus().toUpperCase(), false);
+    else
+    {
+        statusHoldUntil = 0;
+        waveform.setStatus({}, false);
+    }
+
     const auto path = processor.getCurrentSampleFile().getFullPathName();
     if (path != lastSamplePath)
     {
@@ -2266,6 +2321,8 @@ void LoopNestEditor::refresh()
         renderedFile = juce::File();
         printButton.setArmed(false);  // a new loop invalidates the printed render
     }
+    // Any baked param/trim moved since the print → RE-HATCH (not draggable).
+    printButton.setStale(printButton.isArmed() && ! processor.isLastRenderCurrent());
 
     playButton.setButtonText(processor.isPlaying() ? "PAUSE" : "PLAY");
     playButton.setShowPauseGlyph(processor.isPlaying());

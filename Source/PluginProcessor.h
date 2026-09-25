@@ -58,6 +58,9 @@ public:
     float getExtractProgress() const { return extractProgress.load(); }  // 0..1
     int   getExtractKept()     const { return extractKept.load(); }
     juce::String getExtractStatus() const;
+    // Cancel a running extraction (the ✕ in the scope header). The worker winds down
+    // at its next file; a cancelled run never adopts the destination.
+    void cancelExtraction();
     // Polled by the editor's timer (message thread): when the worker has finished,
     // this adopts the curated folder and clears the busy flag. Lifetime-safe — the
     // worker never touches sampleFiles itself, so there is no captured-`this` async.
@@ -99,6 +102,11 @@ public:
     // Cleared when a new sample loads (the render no longer matches what's loaded).
     juce::File getLastRender() const { const juce::ScopedLock sl(stateLock); return lastRender; }
 
+    // True while the armed render still matches what a HATCH would print now: same
+    // sample, trim and every baked param. False → the editor shows RE-HATCH and the
+    // key stops being a drag source (dragging would export stale audio).
+    bool isLastRenderCurrent() const;
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -107,6 +115,11 @@ private:
     // False if the file can't be read or fails validation (missing, corrupt header,
     // absurd length/channel count) — the previous sample stays loaded.
     bool loadSample(const juce::File& file);
+
+    // Hash of everything a render bakes in: the sample path, the trim, and every
+    // param except the audition-only ones (glide, bypass, gain match). Caller holds
+    // stateLock (it reads currentSample).
+    juce::uint64 renderSignature() const;
 
     // Drum-loop curation worker + its label filters (see extractDrumLoops()).
     void runExtraction(juce::File src, juce::File dest);  // worker-thread body
@@ -146,6 +159,19 @@ private:
     juce::File           currentSample;
     juce::String         currentSampleName;
     juce::File           lastRender;       // see getLastRender()
+    juce::uint64         lastRenderSig = 0; // renderSignature() at the time lastRender was printed
+    // Bumped whenever sampleFolder changes. A rescan captures it with the folder
+    // and drops its result if another selection landed while it walked the disk.
+    int                  folderGen = 0;
+
+    // Serializes loadSample end to end (decode + install), so overlapping loads —
+    // a host restore racing a UI spin — install one after the other, never
+    // interleaved. Message/host threads only, never the audio thread.
+    juce::CriticalSection loadLock;
+    // >0 while setStateInformation runs: the audio thread outputs silence so the
+    // restored trim/FX never play over the previous sample before the restored
+    // one is installed.
+    std::atomic<int> restoring { 0 };
 
     juce::Random random;
 

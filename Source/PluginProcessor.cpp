@@ -211,6 +211,7 @@ LoopNestProcessor::LoopNestProcessor()
         {
             const juce::ScopedLock sl(stateLock);
             sampleFolder = def;
+            ++folderGen;
         }
         rescanFolder();
     }
@@ -308,6 +309,43 @@ void LoopNestProcessor::regionFrames(int numFrames, int& startFrame, int& endFra
                               (int) (endParam->load() * lastFrame));
 }
 
+// Seam declick (audition + render share it, so the print loops exactly like the
+// audition). Linear-interpolated read at a fractional source position, plus an
+// equal-power crossfade over the first `seamLen` frames of the region: the head
+// fades in while the audio just PAST the end point fades out. At the wrap the
+// output continues from x[end] (the next sample after the tail) and lands on
+// x[start + seamLen], so there is no step at the seam, and the region length and
+// trim points are unchanged. Past the file end the continuation holds the last
+// sample (still continuous). Pure reads, no allocation: audio-thread safe.
+static float readInterp(const juce::AudioBuffer<float>& buf, int ch, double pos) noexcept
+{
+    const int n  = buf.getNumSamples();
+    const int i0 = juce::jlimit(0, n - 1, (int) pos);
+    const int i1 = (i0 + 1 < n) ? i0 + 1 : i0;
+    const float frac = (float) juce::jlimit(0.0, 1.0, pos - (double) i0);
+    const float a = buf.getSample(ch, i0), b = buf.getSample(ch, i1);
+    return a + frac * (b - a);
+}
+
+static float readSeamed(const juce::AudioBuffer<float>& buf, int ch, double pos,
+                        int startFrame, int regionLen, int seamLen) noexcept
+{
+    const float head = readInterp(buf, ch, pos);
+    const double into = pos - (double) startFrame;
+    if (seamLen <= 0 || into < 0.0 || into >= (double) seamLen)
+        return head;
+    const float t = (float) (into / (double) seamLen) * juce::MathConstants<float>::halfPi;
+    const float tail = readInterp(buf, ch, pos + (double) regionLen);
+    return head * std::sin(t) + tail * std::cos(t);
+}
+
+// ~2 ms crossfade, capped at a quarter of the region so short loops keep their body.
+static int seamFrames(double srcSR, int regionLen) noexcept
+{
+    const int f = juce::jmin(juce::roundToInt(0.002 * srcSR), regionLen / 4);
+    return f >= 2 ? f : 0;
+}
+
 void LoopNestProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ignoreUnused(midi); // LoopNest ignores MIDI entirely.
@@ -320,8 +358,10 @@ void LoopNestProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         return;
 
     const int numSampleFrames = sampleBuffer.getNumSamples();
-    if (numSampleFrames <= 0)
+    if (numSampleFrames <= 0 || restoring.load() > 0)
     {
+        // Empty, or a state restore is mid-flight (params already restored, sample
+        // not yet): silence. Play resumes with the usual fade-in once it's installed.
         playbackActive = false;
         return;
     }
@@ -385,6 +425,8 @@ void LoopNestProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
 
     int startFrame, endFrame;
     regionFrames(numSampleFrames, startFrame, endFrame);
+    const int regionLen = endFrame - startFrame;
+    const int seamLen   = seamFrames(sampleFileSampleRate, regionLen);
 
     // Publishes the current readPos to the UI scrubber as a 0..1 fraction.
     // Divide by (N-1), NOT N, so this matches how regionFrames() maps the trim
@@ -471,25 +513,20 @@ void LoopNestProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         if (readPos < (double) startFrame) // trim moved under us mid-play
             readPos = (double) startFrame;
 
-        // Linear interpolation between the two nearest source samples.
-        const int   i0 = (int) readPos;
-        const int   i1 = (i0 + 1 < numSampleFrames) ? i0 + 1 : i0;
-        const float frac = (float) (readPos - (double) i0);
-
+        // Linear interpolation between the two nearest source samples, with the
+        // seam crossfade over the region head (see readSeamed).
         float outSamples[2] = { 0.0f, 0.0f };
         for (int ch = 0; ch < numOutChannels; ++ch)
         {
             const int srcCh = juce::jmin(ch, sampleBuffer.getNumChannels() - 1);
-            const float s0 = sampleBuffer.getSample(srcCh, i0);
-            const float s1 = sampleBuffer.getSample(srcCh, i1);
-            outSamples[ch] = (s0 + frac * (s1 - s0)) * inGain;   // input gain pre-rack
+            outSamples[ch] = readSeamed(sampleBuffer, srcCh, readPos, startFrame, regionLen, seamLen)
+                           * inGain;   // input gain pre-rack
         }
         if (numOutChannels == 1 && sampleBuffer.getNumChannels() > 1)
         {
             // Mono bus: downmix L+R rather than dropping the right channel.
-            const float r0 = sampleBuffer.getSample(1, i0);
-            const float r1 = sampleBuffer.getSample(1, i1);
-            outSamples[0] = 0.5f * (outSamples[0] + (r0 + frac * (r1 - r0)) * inGain);
+            outSamples[0] = 0.5f * (outSamples[0]
+                + readSeamed(sampleBuffer, 1, readPos, startFrame, regionLen, seamLen) * inGain);
         }
 
         // Pure source tap (post-input-gain, PRE-EQ) — the A/B reference: this is what
@@ -561,6 +598,7 @@ void LoopNestProcessor::setSampleFolder(const juce::File& folder)
     {
         const juce::ScopedLock sl(stateLock);
         sampleFolder = folder;
+        ++folderGen;
     }
     rescanFolder();
     rememberDefaultFolder(folder); // becomes the default for future fresh instances
@@ -609,9 +647,11 @@ void LoopNestProcessor::rescanFolder()
     // Scan into a local array, then swap under the lock — the directory walk can
     // be slow (big stash, network volume) and must not hold stateLock throughout.
     juce::File folder;
+    int gen = 0;
     {
         const juce::ScopedLock sl(stateLock);
         folder = sampleFolder;
+        gen    = folderGen;
     }
 
     juce::Array<juce::File> found;
@@ -634,6 +674,8 @@ void LoopNestProcessor::rescanFolder()
     }
 
     const juce::ScopedLock sl(stateLock);
+    if (gen != folderGen)
+        return;   // the selection moved on mid-walk; that selection's own scan publishes
     sampleFiles.swapWith(found);
 }
 
@@ -769,7 +811,7 @@ void LoopNestProcessor::runExtraction(juce::File src, juce::File dest)
     for (const auto& entry : juce::RangedDirectoryIterator(
              src, true, kAudioFileWildcard, juce::File::findFiles))
     {
-        if (bail()) { extracting.store(false); return; }
+        if (bail()) { setExtractStatus("cancelled"); extracting.store(false); return; }
         const auto f = entry.getFile();
         if (f.isSymbolicLink())              continue;   // a link could escape the tree
         if (f.isAChildOf(outDir))            continue;   // don't re-ingest our output
@@ -887,6 +929,21 @@ void LoopNestProcessor::runExtraction(juce::File src, juce::File dest)
     }
 }
 
+void LoopNestProcessor::cancelExtraction()
+{
+    if (! extracting.load())
+        return;
+    if (extractThread != nullptr)
+        extractThread->signalThreadShouldExit();
+    // The worker may already have finished and queued its adoption; a cancel that
+    // lands in that window still wins — drop the adoption and clear the busy flag.
+    if (adoptPending.exchange(false))
+    {
+        setExtractStatus("cancelled");
+        extracting.store(false);
+    }
+}
+
 void LoopNestProcessor::finishExtractionIfReady()
 {
     if (! adoptPending.exchange(false))
@@ -898,6 +955,8 @@ void LoopNestProcessor::finishExtractionIfReady()
 
 bool LoopNestProcessor::loadSample(const juce::File& file)
 {
+    const juce::ScopedLock ll(loadLock);   // one load at a time (see loadLock)
+
     std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
     if (reader == nullptr)
         return false;
@@ -928,6 +987,10 @@ bool LoopNestProcessor::loadSample(const juce::File& file)
     if (! reader->read(&temp, 0, (int) reader->lengthInSamples, 0, true, true))
         return false;
 
+    // Install buffer + metadata as one step: stateLock outside, sampleLock inside
+    // (the only nesting order used anywhere), so no reader ever sees file B's audio
+    // under file A's name/path/hatch filename.
+    const juce::ScopedLock sl(stateLock);
     {
         const juce::SpinLock::ScopedLockType lock(sampleLock);
         sampleBuffer = std::move(temp);
@@ -936,13 +999,9 @@ bool LoopNestProcessor::loadSample(const juce::File& file)
         readPos = 0.0;
         character.reset();
     }
-
-    {
-        const juce::ScopedLock sl(stateLock);
-        currentSample = file;
-        currentSampleName = file.getFileName();
-        lastRender = juce::File();   // a new sample invalidates the old render
-    }
+    currentSample = file;
+    currentSampleName = file.getFileName();
+    lastRender = juce::File();   // a new sample invalidates the old render
     return true;
 }
 
@@ -951,16 +1010,23 @@ bool LoopNestProcessor::loadSample(const juce::File& file)
 juce::File LoopNestProcessor::renderLoop()
 {
     // Snapshot what we need under the lock, then render without holding it.
+    // stateLock too, so the audio, its filename and the signature all describe
+    // the same sample even if a load lands mid-render.
     juce::AudioBuffer<float> src;
     double srcSR = 44100.0;
     int startFrame = 0, endFrame = 0;
+    juce::File sampleFile;
+    juce::uint64 sig = 0;
     {
+        const juce::ScopedLock sl(stateLock);
         const juce::SpinLock::ScopedLockType lock(sampleLock);
         if (sampleBuffer.getNumSamples() <= 0)
             return {};
         src.makeCopyOf(sampleBuffer);
         srcSR = sampleFileSampleRate;
         regionFrames(src.getNumSamples(), startFrame, endFrame);
+        sampleFile = currentSample;
+        sig = renderSignature();
     }
 
     const int srcChannels = src.getNumChannels();
@@ -992,6 +1058,7 @@ juce::File LoopNestProcessor::renderLoop()
     const float mix01 = juce::jlimit(0.0f, 1.0f, mixParam->load() * 0.01f);
 
     const int regionLen = endFrame - startFrame;
+    const int seamLen   = seamFrames(srcSR, regionLen);   // same seam fade as the audition
     const int numOut = (int) std::ceil((double) regionLen / pitchRatio);
     if (numOut <= 0)
         return {};
@@ -1027,17 +1094,12 @@ juce::File LoopNestProcessor::renderLoop()
         double pos = (double) startFrame;
         for (int n = 0; n < numOut && pos < (double) endFrame; ++n)
         {
-            const int   i0 = (int) pos;
-            const int   i1 = (i0 + 1 < src.getNumSamples()) ? i0 + 1 : i0;
-            const float frac = (float) (pos - (double) i0);
-
             float s[2] = { 0.0f, 0.0f };
             for (int ch = 0; ch < outChannels; ++ch)
             {
                 const int srcCh = juce::jmin(ch, srcChannels - 1);
-                const float a = src.getSample(srcCh, i0);
-                const float b = src.getSample(srcCh, i1);
-                s[ch] = (a + frac * (b - a)) * inGain;   // input gain pre-rack (bakes in)
+                s[ch] = readSeamed(src, srcCh, pos, startFrame, regionLen, seamLen)
+                      * inGain;   // input gain pre-rack (bakes in)
             }
 
             renderChar.processEq(s, outChannels);        // master EQ pre-rack (bakes in)
@@ -1064,7 +1126,7 @@ juce::File LoopNestProcessor::renderLoop()
     if (! dir.isDirectory())
         return {};
 
-    auto base = getCurrentSampleFile().getFileNameWithoutExtension();
+    auto base = sampleFile.getFileNameWithoutExtension();
     if (base.isEmpty()) base = "loop";
     const auto stamp = juce::Time::getCurrentTime().formatted("%Y%m%d_%H%M%S");
     auto file = dir.getNonexistentChildFile(base + "_LoopNest_" + stamp, ".wav");
@@ -1106,9 +1168,44 @@ juce::File LoopNestProcessor::renderLoop()
 
     {
         const juce::ScopedLock sl(stateLock);
-        lastRender = file;   // survives editor close/reopen (PRINT re-arms from it)
+        // A load that landed mid-render already moved on; don't arm this print over it.
+        if (currentSample != sampleFile)
+            return {};
+        lastRender    = file;   // survives editor close/reopen (PRINT re-arms from it)
+        lastRenderSig = sig;
     }
     return file;
+}
+
+juce::uint64 LoopNestProcessor::renderSignature() const
+{
+    // FNV-1a over the sample path and every baked param's raw value. Audition-only
+    // params are skipped so toggling A/B or glide doesn't mark the print stale.
+    juce::uint64 h = 14695981039346656037ull;
+    auto mix = [&h] (const void* data, size_t n)
+    {
+        auto* p = static_cast<const juce::uint8*>(data);
+        for (size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ull; }
+    };
+    const auto path = currentSample.getFullPathName().toStdString();
+    mix(path.data(), path.size());
+    for (auto* p : getParameters())
+    {
+        auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p);
+        if (rp == nullptr) continue;
+        const auto& id = rp->getParameterID();
+        if (id == "pitchGlide" || id == "bypass" || id == "gainMatch")
+            continue;
+        const float v = rp->getValue();
+        mix(&v, sizeof(v));
+    }
+    return h;
+}
+
+bool LoopNestProcessor::isLastRenderCurrent() const
+{
+    const juce::ScopedLock sl(stateLock);
+    return lastRender != juce::File() && renderSignature() == lastRenderSig;
 }
 
 // === State persistence ===
@@ -1139,11 +1236,18 @@ void LoopNestProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (! state.isValid() || state.getType() != apvts.state.getType())
         return;
 
+    // Mute the audition for the whole restore: replaceState lands the saved trim/FX
+    // immediately, but the saved sample decodes afterwards. Without the mute the
+    // previous sample plays under the restored params until then.
+    ++restoring;
+    const juce::ScopeGuard unmute { [this] { --restoring; } };
+
     apvts.replaceState(state);
 
     {
         const juce::ScopedLock sl(stateLock);
         sampleFolder = juce::File(state.getProperty("folder", juce::String()).toString());
+        ++folderGen;
     }
     rescanFolder();
 
@@ -1153,16 +1257,19 @@ void LoopNestProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (! (savedSample.existsAsFile() && loadSample(savedSample)))
     {
         // Recalled state has no sample (or it vanished): don't leave the previous
-        // sample playing/armed under state that says otherwise.
+        // sample playing/armed under state that says otherwise. Same lock nesting
+        // as loadSample so the clear is atomic with the metadata.
+        const juce::ScopedLock ll(loadLock);
+        const juce::ScopedLock sl(stateLock);
         {
             const juce::SpinLock::ScopedLockType lock(sampleLock);
             sampleBuffer.setSize(0, 0);
             playbackActive = false;
             readPos = 0.0;
         }
-        const juce::ScopedLock sl(stateLock);
         currentSample = juce::File();
         currentSampleName.clear();
+        lastRender = juce::File();
     }
 }
 
