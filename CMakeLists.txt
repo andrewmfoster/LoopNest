@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
-project(LoopNest VERSION 1.0.1)
+
+# Must precede project(). Unset, the binary's minimum macOS defaults to the build
+# machine's own version and the plugin silently refuses to load on anything older
+# (1.0.0 shipped as macOS 26+, 1.0.1 as macOS 27+).
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
+
+project(LoopNest VERSION 1.0.2)
 
 set(CMAKE_CXX_STANDARD 17)
 

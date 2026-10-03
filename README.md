@@ -50,7 +50,7 @@ straight onto a track. Chopping and tempo-warping are your DAW's job after the d
 - **A VST3 or AU host on macOS.** Ships in both formats, so it loads in
   **Ableton, Reaper, Bitwig, Cubase** (VST3) and **Logic, GarageBand, MainStage**
   (AU). Built and tested most in Ableton Live 12 + verified in Logic Pro.
-- **macOS on Apple Silicon** (arm64). No Windows / Intel build.
+- **macOS 13 Ventura or later, on Apple Silicon** (arm64). No Windows / Intel build.
 
 ## Build
 

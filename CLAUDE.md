@@ -14,7 +14,10 @@ after the drop.
 
 - **Framework:** JUCE 8, vendored as a pinned git submodule at `./JUCE` (a fresh clone needs
   `--recurse-submodules`)
-- **Build:** CMake · **Formats:** VST3 + AU · **Language:** C++17 · **Platform:** macOS arm64
+- **Build:** CMake · **Formats:** VST3 + AU · **Language:** C++17 · **Platform:** macOS arm64, minimum macOS 13
+- **Deployment target:** `CMAKE_OSX_DEPLOYMENT_TARGET` is pinned at the top of `CMakeLists.txt`. Unset, the
+  binary silently requires the build machine's macOS (1.0.0 shipped as 26+, 1.0.1 as 27+). After a
+  release build, check `otool -l <bundle>/Contents/MacOS/LoopNest | grep minos`.
 
 ## Build
 
