@@ -22,6 +22,8 @@ hit spin, and it pulls one out at random. Trim it, pitch it, dirty it up through
 a six-stage lo-fi rack until it sounds like *yours*, then **hatch** a `.wav` and
 drag it straight onto a track.
 
+https://github.com/user-attachments/assets/46b55bcd-d2ed-4c90-ae1e-b315efd0a2f0
+
 ## What's new in v2
 
 Version 2 is a rebuild of 1.0. LoopNest now sits on a track as an audio effect,
