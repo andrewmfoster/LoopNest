@@ -1,8 +1,8 @@
-# LoopNest (v2 branch)
+# LoopNest
 
 A loop-curation + loop-creation **audio effect** (VST3 + AU) built with JUCE, for macOS / Apple
-Silicon. This branch is v2 (`docs/v2-scope.md` in the main checkout); v1 1.0.1, an instrument,
-lives on `main` in `MusicProduction/LoopNest`.
+Silicon. `main` is v2 (2.0.0, tag `v2.0.0`; scope in the untracked `docs/v2-scope.md`); v1, an
+instrument, is the history up to tag `v1.0.2`.
 
 ## Concept
 
@@ -20,7 +20,9 @@ grid (barOrigin) is display only. The handles snap to detected drum hits.
 ## Build + test
 
 JUCE 8 is a pinned submodule at `./JUCE` (fresh clone: `--recurse-submodules`). C++17, CMake,
-macOS arm64. The configured build dir is `build-spike/` (Release, untracked).
+macOS arm64. The commands below use a Release build dir `build-spike/` (untracked; configure a
+fresh one with `cmake -B build-spike -DCMAKE_BUILD_TYPE=Release`). It exists in the v2 worktree,
+not the main checkout, whose `build/` is a stale Debug tree: don't build into it.
 
 ```bash
 cmake --build build-spike -j8
@@ -45,7 +47,7 @@ codesign --verify --deep --strict "$V/LoopNest.vst3" "$C/LoopNest.component"
 auval -v aufx LpSx Wndr    # expect AU VALIDATION SUCCEEDED.
 ```
 
-Never push: the repo is public and a push is a deploy.
+Pushes need Andrew's yes: the repo is public and a push is a deploy.
 
 ## Key notes (hard-won — read before touching build/host behavior)
 
