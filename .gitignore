@@ -4,6 +4,7 @@ build-release/
 
 # Release packaging artifacts (regenerable from a Release build)
 /release-stage/
+/dist/
 /LoopNest */
 /LoopNest-*-macOS.zip
 

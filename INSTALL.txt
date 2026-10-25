@@ -1,0 +1,51 @@
+LoopNest 2.0.0 for macOS (Apple Silicon)
+Wander Foster
+
+Requires macOS 13 Ventura or later on an Apple Silicon Mac (M1 or newer). No Intel build.
+
+LoopNest is an audio effect. This version replaces version 1: copying it over the old
+LoopNest files replaces them. Ableton or Logic sets made with version 1 open with LoopNest
+missing. Version 1 is still on the GitHub releases page for those sets:
+https://github.com/andrewmfoster/LoopNest/releases
+
+1. Install
+   VST3 (Ableton Live, Reaper, Bitwig, Cubase, Studio One):
+     copy  LoopNest.vst3        to  ~/Library/Audio/Plug-Ins/VST3/
+   AU (Logic Pro, GarageBand, MainStage):
+     copy  LoopNest.component   to  ~/Library/Audio/Plug-Ins/Components/
+   ~/Library is hidden. In Finder press Cmd+Shift+G and paste the folder path.
+
+2. Let macOS load it (one time)
+   LoopNest is free and not notarized by Apple. macOS marks everything downloaded
+   from the internet, and until that mark is cleared your DAW will not load the
+   plugin: it is missing from the plugin list, or the DAW says it failed to load.
+   Open Terminal and paste this command (both lines, then press Return):
+
+     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/LoopNest.vst3 \
+       ~/Library/Audio/Plug-Ins/Components/LoopNest.component
+
+   If you installed only one format, Terminal prints "No such file" for the other.
+   That is fine. Copying the plugin again (for example after an update) brings the
+   mark back, so run the command again after every install.
+
+3. Restart your DAW
+   Ableton Live: Settings > Plug-Ins > Rescan.
+   Logic scans plugins at launch. LoopNest is under
+   Audio FX > Audio Units > Wander Foster > LoopNest.
+
+Logic
+   Put LoopNest on a stereo audio track. A new Mic or Line track is mono and folds
+   LoopNest to mono.
+   Logic runs an audio track's effects only while the song plays or while the track's
+   input monitoring button (I) is on. To hear AUDITION with Logic stopped, turn on I.
+
+Files LoopNest writes:
+   Prints:    ~/Music/LoopNest/Prints/
+   Settings:  ~/Library/Application Support/LoopNest/
+
+Uninstall: delete the two files from step 1 (and the folders above if you want).
+
+LoopNest is open source. Source code and licences:
+https://github.com/andrewmfoster/LoopNest
+The plugin binary is licensed AGPLv3 (AGPL-3.0.txt), the source code MIT (LICENSE).
+Third-party licences are in THIRD-PARTY-NOTICES.txt.
