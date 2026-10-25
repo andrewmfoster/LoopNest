@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-333?logo=apple&logoColor=white" alt="macOS Apple Silicon">
   <img src="https://img.shields.io/badge/version-2.0.0-b84428" alt="v2.0.0">
   <img src="https://img.shields.io/badge/license-MIT%20source%20%C2%B7%20AGPLv3%20binary-1a8f8a" alt="MIT source, AGPLv3 binary">
+  <a href="https://loopnestplugin.com"><img src="https://img.shields.io/badge/site-loopnestplugin.com-1a8f8a" alt="loopnestplugin.com"></a>
 </p>
 
 ---
@@ -21,6 +22,8 @@ The loop is: **curate → spin → shape → hatch**. Point it at a folder of lo
 hit spin, and it pulls one out at random. Trim it, pitch it, dirty it up through
 a six-stage lo-fi rack until it sounds like *yours*, then **hatch** a `.wav` and
 drag it straight onto a track.
+
+Hear it and watch it work at **[loopnestplugin.com](https://loopnestplugin.com)**.
 
 https://github.com/user-attachments/assets/46b55bcd-d2ed-4c90-ae1e-b315efd0a2f0
 
