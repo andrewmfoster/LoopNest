@@ -1,0 +1,2715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LoopNest</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  // Collect errors from the very start (window.__ln.check() reports them).
+  window.__lnErr = []; window.__lnWarn = [];
+  addEventListener('error', e => {
+    const tg = e.target;
+    if (tg && tg !== window && (tg.src || tg.href)) __lnErr.push('resource: ' + (tg.src || tg.href));
+    else __lnErr.push('error: ' + (e.message || e.type) + (e.filename ? ' @' + e.filename + ':' + e.lineno : ''));
+  }, true);
+  addEventListener('unhandledrejection', e => __lnErr.push('rejection: ' + ((e.reason && e.reason.message) || e.reason)));
+  (() => {
+    const ce = console.error.bind(console), cw = console.warn.bind(console);
+    console.error = (...a) => { __lnErr.push('console.error: ' + a.join(' ')); ce(...a); };
+    console.warn = (...a) => { __lnWarn.push(a.join(' ')); cw(...a); };
+  })();
+</script>
+<style>
+  /* Bundled plugin font: BinaryData, served by the editor's resource provider by filename. No network. */
+  @font-face { font-family: "JBM Local"; src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype"); font-weight: 400; }
+  @font-face { font-family: "JBM Local"; src: url("fonts/JetBrainsMono-Bold.ttf") format("truetype"); font-weight: 700; }
+
+  :root {
+    --bg: #060809;  --deep: #030506; --strip: #0d1213;
+    --line: #eef3f5; --soft: #97a3a6; --faint: #343f41;
+    --teal: #1fe3da; --teal-dim: #1f9089; --dormant: #5d676a;
+    --acc: var(--teal);
+    --frame: rgba(151,163,166,0.45);
+    --font: "JBM Local", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--deep); overflow: hidden; }
+  body { font-family: var(--font); color: var(--line); -webkit-font-smoothing: antialiased; user-select: none; }
+  button { font-family: var(--font); color: inherit; }
+
+  #stage {
+    position: absolute; left: 0; top: 0; width: 1672px; height: 941px;
+    transform-origin: 0 0;   /* scaled from the corner, like the native HATCH overlay's rect */
+    background: var(--bg);
+  }
+  #stage.bypass { --acc: var(--dormant); }
+  #stage.bypass .glowlab { color: var(--soft) !important; text-shadow: none !important; }
+  .glowlab { transition: color .12s; }
+  .abs { position: absolute; }
+  #frame { left: 10px; top: 10px; width: 1652px; height: 921px; border: 2px solid rgba(238,243,245,0.85);
+           border-radius: 15px; pointer-events: none; }
+
+  .lab  { font-weight: 700; font-size: 13px; letter-spacing: 0.16em; color: var(--soft); text-transform: uppercase; }
+  .cap  { font-size: 12px; letter-spacing: 0.04em; color: var(--soft); line-height: 1.45; }
+  .val  { font-size: 14px; letter-spacing: 0.04em; color: var(--line); font-variant-numeric: tabular-nums; }
+  .src  { color: var(--soft); }
+  .hot  { color: var(--teal); }
+  .drag { cursor: ns-resize; border-bottom: 1px dashed var(--faint); }
+  .drag:hover { border-bottom-color: var(--teal); }
+  .ro { border-bottom: 1px solid transparent; }   /* the host's tempo: display-only, same box as the mock's draggable value */
+
+  .strip {
+    background: var(--strip); border: 1.3px solid var(--faint); border-radius: 12px;
+  }
+  .group { border: 1.5px solid var(--frame); border-radius: 18px; }
+  .key {
+    background: transparent; border: 1.6px solid rgba(238,243,245,0.8); border-radius: 9px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px;
+    font: 700 16px var(--font); letter-spacing: 0.14em; color: var(--line);
+  }
+  .key:hover { border-color: rgba(238,243,245,0.95); }
+  .key:active { background: rgba(238,243,245,0.06); }
+  .key.on { border: 2.4px solid var(--teal); }
+  .key:focus-visible, .tab:focus-visible, .ibtn:focus-visible { outline: 1px solid var(--teal); outline-offset: 3px; }
+  .ibtn {
+    background: transparent; border: 1.3px solid var(--faint); border-radius: 8px; cursor: pointer;
+    color: var(--line); font: 700 14px var(--font); display: flex; align-items: center; justify-content: center;
+  }
+  .ibtn:hover { border-color: var(--soft); color: var(--teal); }
+
+  /* ---------- header ---------- */
+  /* r2: header holds only the logo and the mode tabs, 42 px tall (was 72) */
+  #logo { left: 24px; top: 22px; width: 290px; height: 42px; display: flex; align-items: center; gap: 14px; padding-left: 8px; }
+  #wordmark {
+    font: 700 26px var(--font); letter-spacing: 0.12em;
+    background: linear-gradient(180deg, #f5f7f8 0%, #d2d7da 18%, #7d848a 50%, #b9bfc3 82%, #e7eaec 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(2px 3px 0 rgba(0,0,0,0.5));
+  }
+  /* stage 2 (r3 layout): BANK is a 200 px dropdown where the NEST label was. The name keeps r2's 13 px bold but its
+     tracking drops from 0.1em to 0.02em (and the left pad from 12 to 10) so a 20-character bank name fits unclipped. */
+  #bank { position: absolute; left: 14px; top: 12px; width: 200px; height: 34px; cursor: pointer; text-align: left; border-radius: 9px;
+          display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 10px; gap: 6px; color: var(--line); }
+  #bank:hover { border-color: var(--soft); }
+  #bank:focus-visible { outline: 1px solid var(--teal); outline-offset: 3px; }
+  #bank .name { font: 700 13px var(--font); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .chev { color: var(--soft); flex: none; display: flex; }
+  .caret { width: 10px; height: 6px; display: block; }
+  #bank:hover .chev, #bin:hover .chev { color: var(--line); }
+  /* stage 2 r2: SPIN has no key box. The reel dial is the control (v1 SpinDial: a big rotor, click = spin burst),
+     100 px, with r2's SPIN word beside it, centred under the cassette in the space the BAR / BEAT line left.
+     Clickability comes from hover (teal halo, arrows and word go teal) and press (dial dips, arrows full teal). */
+  #spin { position: absolute; left: 368px; top: 328px; width: 190px; height: 104px; border: 0; background: transparent; border-radius: 12px;
+          gap: 14px; padding: 0; justify-content: center; }
+  #spin:hover, #spin:active { border: 0; background: transparent; }
+  #spin .lbl { font-size: 15px; letter-spacing: 0.22em; padding-left: 0.22em; color: var(--line); transition: color .15s, text-shadow .15s; }
+  #spin:hover .lbl { color: var(--teal); text-shadow: 0 0 10px rgba(31,227,218,0.35); }
+  #dial { width: 100px; height: 100px; display: block; flex: none; transition: transform .08s; }
+  #spin:active #dial { transform: translateY(1px) scale(0.95); }
+  #spin:active .lbl { transform: translateY(1px); }
+  /* Spin history ◀ ▶ (Andrew, 10-11): bare glyph keys either side of the SPIN dial, level with its hub, in the SPIN
+     word's colour and hover glow. Dim at the ends of the history. */
+  .hist { position: absolute; top: 365px; width: 30px; height: 30px; padding: 0; border: 0; background: transparent; cursor: pointer;
+          display: flex; align-items: center; justify-content: center; font: 700 13px var(--font); color: var(--line);
+          transition: color .15s, text-shadow .15s, opacity .15s; }
+  #h-back { left: 341px; }
+  #h-fwd { left: 562px; }
+  .hist:hover:not(:disabled) { color: var(--teal); text-shadow: 0 0 10px rgba(31,227,218,0.35); }
+  .hist:active:not(:disabled) { transform: translateY(1px); }
+  .hist:disabled { opacity: 0.28; cursor: default; }
+  .hist:focus-visible { outline: 1px solid var(--teal); outline-offset: 3px; }
+  /* stage 2 r3: AUDITION | LIVE is one two-way switch. One outer border, a hairline split, icon + word in each half.
+     The lit half glows on its whole frame: teal edge, r2's teal glow, r2's 10% teal fill, bright icon and word.
+     The unlit half is dark with a dim icon and word, and brightens on hover. No underline. */
+  #tabs { left: 1288px; top: 22px; width: 360px; height: 42px; display: grid; grid-template-columns: 1fr 1fr;
+          border: 1.5px solid var(--faint); border-radius: 12px; }
+  .tab { position: relative; background: transparent; border: 0; cursor: pointer; color: var(--soft); display: flex; flex-direction: row;
+         align-items: center; justify-content: center; gap: 10px; padding: 0; transition: background-color .15s; }
+  .tab:first-child { border-radius: 10.5px 0 0 10.5px; }
+  .tab:last-child { border-radius: 0 10.5px 10.5px 0; }
+  .tab + .tab { border-left: 1px solid var(--faint); }
+  .tab .t { font: 700 17px var(--font); letter-spacing: 0.16em; padding-left: 0.16em; }
+  .tab .t, .tab .ico { opacity: 0.55; transition: opacity .15s, color .15s; }
+  .tab .ico { width: 26px; height: 22.5px; flex: none; display: block; }
+  .tab:not(.on):hover { background: rgba(151,163,166,0.07); color: var(--line); }
+  .tab:not(.on):hover .t, .tab:not(.on):hover .ico { opacity: 0.9; }
+  .tab.on { color: var(--line); background: rgba(31,227,218,0.10); cursor: default; }
+  .tab.on .t, .tab.on .ico { opacity: 1; }
+  .tab.on .t { text-shadow: 0 0 10px rgba(31,227,218,0.45); }
+  .tab.on .ico { filter: drop-shadow(0 0 4px rgba(31,227,218,0.55)); }
+  .tab.on::after { content: ""; position: absolute; inset: -1.5px; border: 1.6px solid var(--teal); border-radius: inherit; pointer-events: none;
+                   box-shadow: 0 0 14px rgba(31,227,218,0.30), inset 0 0 12px rgba(31,227,218,0.16); }
+  .tab.on:first-child::after { border-radius: 12px 0 0 12px; }
+  .tab.on:last-child::after { border-radius: 0 12px 12px 0; }
+  .dimmable { transition: opacity .25s; }
+  #stage.fx .dimmable { opacity: 0.28; pointer-events: none; }
+
+  /* ---------- hero ---------- */
+  /* NEST: rack of spines + loaded cassette, one group */
+  /* r2: header 36 px shorter, the nest/scope row starts at 76 (was 112) and is 36 px taller */
+  #nest { left: 24px; top: 76px; width: 640px; height: 444px; }
+  /* the BAR / BEAT / BPM line is cut, so the cassette canvas only covers the deck (cassette drawn at nest 306,104, 314 x 211) */
+  #cas { position: absolute; left: 300px; top: 92px; width: 326px; height: 234px; }
+  #n-search { position: absolute; left: 222px; top: 12px; width: 276px; height: 34px; display: flex; align-items: center;
+              gap: 8px; padding: 0 10px 0 10px; border-radius: 9px; cursor: text; }
+  #n-search:focus-within { border-color: var(--teal); }
+  #n-search svg { width: 14px; height: 14px; flex: none; }
+  #n-q { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--line);
+         font: 400 12px var(--font); letter-spacing: 0.06em; padding: 0; }
+  #n-q::placeholder { color: var(--soft); opacity: 0.8; font-weight: 700; letter-spacing: 0.16em; font-size: 11px; }
+  #n-count { font-size: 12px; color: var(--soft); white-space: nowrap; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  #n-count.hot { color: var(--teal); }
+  /* stage 2 (r3 layout): one tight 120 px stepper box, ◀ n / N ▶, arrows right against the number.
+     Box = r2's strip; arrows = r2's .ibtn with the border dropped; number = r2's n-pos stepped down 16 -> 13 px to fit. */
+  #n-step { position: absolute; left: 506px; top: 12px; width: 120px; height: 34px; display: flex; align-items: center;
+            justify-content: center; gap: 1px; padding: 0 3px; border-radius: 9px; }
+  #n-step .ibtn { width: 22px; height: 26px; font-size: 11px; border-color: transparent; border-radius: 6px; flex: none; padding: 0; color: var(--soft); }
+  #n-step .ibtn:hover { border-color: var(--faint); color: var(--teal); }
+  #n-pos { text-align: center; font: 700 13px var(--font); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; padding: 0 2px;
+           cursor: text; border-radius: 4px; }
+  #n-pos:hover { color: var(--teal); }
+  #n-pos input { width: 64px; height: 24px; background: var(--deep); border: 1.3px solid var(--teal); border-radius: 5px; outline: none; padding: 0 4px;
+                 color: var(--line); font: 700 13px var(--font); letter-spacing: 0.02em; text-align: center; font-variant-numeric: tabular-nums; }
+  #n-x { flex: none; width: 16px; height: 16px; padding: 0; border: 0; background: transparent; color: var(--soft); cursor: pointer; display: none;
+         font: 700 13px var(--font); line-height: 16px; }
+  #n-x:hover { color: var(--teal); }
+  #n-search.q #n-x { display: block; }
+  #n-rack { position: absolute; left: 14px; top: 58px; width: 282px; height: 372px; overflow-y: auto; overflow-x: hidden; padding: 5px 0 9px;
+            scrollbar-width: none;
+            -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+                    mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%); }
+  #n-rack::-webkit-scrollbar { display: none; }
+  /* drag-in (Andrew, 10-17): the rack lights while files dragged over it may drop (ln_drop from the native
+     RackDropTarget), in .spine.sel's teal. Not drawn at rest; above the dimmed rack so it lights in LIVE too. */
+  #n-drop { position: absolute; left: 14px; top: 58px; width: 282px; height: 372px; border: 1.6px solid var(--teal); border-radius: 9px;
+            background: rgba(31,227,218,0.10); box-shadow: 0 0 12px rgba(31,227,218,0.16); pointer-events: none; display: none; }
+  #n-drop.on { display: block; }
+  #n-rail { position: absolute; left: 6px; top: 64px; width: 2px; height: 360px; border-radius: 1px; background: rgba(52,63,65,0.6); pointer-events: none; }
+  #n-thumb { position: absolute; left: 0; width: 2px; border-radius: 1px; background: var(--soft); opacity: 0.7; }
+  .spine { position: relative; display: block; width: 256px; height: 32px; margin: 0 0 5px 0; padding: 0;
+           background: var(--strip); border: 1.3px solid var(--faint); border-radius: 5px; cursor: pointer; text-align: left;
+           transition: transform .2s cubic-bezier(.3,1.5,.55,1), border-color .15s, background-color .15s; }
+  .spine::before, .spine::after { content: ""; position: absolute; top: 4px; bottom: 4px; width: 7px;
+           background: repeating-linear-gradient(90deg, rgba(151,163,166,0.55) 0 1px, transparent 1px 3px); opacity: 0.8; }
+  .spine::before { left: 4px; } .spine::after { right: 4px; }
+  .spine .lbl { position: absolute; left: 14px; right: 14px; top: 4px; bottom: 4px; border-left: 1px solid rgba(52,63,65,0.9);
+           border-right: 1px solid rgba(52,63,65,0.9); display: flex; align-items: center; justify-content: space-between; padding: 0 7px 0 8px; gap: 6px; }
+  .spine .nm { font-size: 12px; letter-spacing: 0; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spine .bp { font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
+  .spine:not(.sel) { transition: transform .2s cubic-bezier(.2,.7,.3,1), border-color .15s, background-color .15s; }   /* stage 2: home without overshoot, so it never clips at the rack edge */
+  .spine:hover { border-color: var(--soft); transform: translateX(4px); }
+  .spine:hover .nm { color: var(--line); }
+  .spine:focus-visible { outline: 1px solid var(--teal); outline-offset: 2px; }
+  .spine.sel { border: 1.6px solid var(--teal); background: rgba(31,227,218,0.10); transform: translateX(14px);
+               box-shadow: 0 0 12px rgba(31,227,218,0.16); }
+  .spine.sel::before, .spine.sel::after { background: repeating-linear-gradient(90deg, rgba(31,227,218,0.7) 0 1px, transparent 1px 3px); }
+  .spine.sel .nm, .spine.sel .bp { color: var(--line); }
+  .spine.hide { display: none; }
+  #stage.fx .spine.sel { transform: none; box-shadow: none; }
+  #n-wire { position: absolute; left: 0; top: 0; width: 640px; height: 444px; pointer-events: none; overflow: visible; transition: opacity .25s; }
+  #stage.fx #n-wire { opacity: 0; }
+  #scope { left: 680px; top: 76px; width: 968px; height: 366px; }
+  /* r2: LOOP is a small toggle in the scope's bottom strip, beside the end time */
+  #loop-t { left: 1492px; top: 409px; height: 22px; padding: 0 9px 0 7px; display: flex; align-items: center; gap: 6px;
+            background: transparent; border: 1.2px solid var(--faint); border-radius: 11px; cursor: pointer;
+            font: 700 11px var(--font); letter-spacing: 0.16em; color: var(--soft); }   /* final: 10 -> 11 px */
+  #loop-t svg { width: 12px; height: 12px; flex: none; }
+  #loop-t svg path { stroke: currentColor; } #loop-t svg path.hd { fill: currentColor; stroke: none; }
+  #loop-t .led { width: 5px; height: 5px; border-radius: 50%; border: 1px solid currentColor; flex: none; }
+  #loop-t:hover { border-color: var(--soft); color: var(--line); }
+  #loop-t.on { border-color: var(--teal); color: var(--line); background: rgba(31,227,218,0.12); }
+  #loop-t.on svg { color: var(--teal); }
+  #loop-t.on .led { background: var(--teal); border-color: var(--teal); box-shadow: 0 0 5px rgba(31,227,218,0.7); }
+  #loop-t:focus-visible { outline: 1px solid var(--teal); outline-offset: 2px; }
+  /* SNAP: the trim handles land on the drum hits (on / off), beside LOOP. BPM: the footer's tempo readout is a button. */
+  #snap-t { right: 188px; top: 409px; height: 22px; padding: 0 9px; display: flex; align-items: center; gap: 6px;
+            background: transparent; border: 1.2px solid var(--faint); border-radius: 11px; cursor: pointer;
+            font: 700 11px var(--font); letter-spacing: 0.16em; color: var(--soft); white-space: nowrap; }
+  #snap-t:hover { border-color: var(--soft); color: var(--line); }
+  #snap-t.on { border-color: var(--teal); color: var(--line); background: rgba(31,227,218,0.12); }
+  #snap-t:focus-visible { outline: 1px solid var(--teal); outline-offset: 2px; }
+  #bpm-t { top: 407px; height: 26px; padding: 0; background: transparent; border: 1.2px solid var(--faint); border-radius: 13px; cursor: pointer; }
+  #bpm-t:hover, #bpm-t:focus-visible { border-color: var(--teal); background: rgba(31,227,218,0.10); outline: none; }
+  #bpm-in { top: 407px; height: 26px; display: none; z-index: 5; background: var(--deep); border: 1.3px solid var(--teal); border-radius: 13px; outline: none;
+            padding: 0 8px; color: var(--line); font: 700 12px var(--font); letter-spacing: 0.04em; text-align: center; font-variant-numeric: tabular-nums; }
+  /* the tempo cell's value drags up and down (a tempo of LoopNest's own; SYNC goes off) */
+  #tempo-line { cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #tempo-line:hover .sl, #tempo-line.drag .sl { color: var(--teal); }
+  .layer { transition: opacity .25s; }
+  .layer.fxonly { opacity: 0; pointer-events: none; }
+  #stage.fx .layer.audonly { opacity: 0; pointer-events: none; }
+  #stage.fx .layer.fxonly { opacity: 1; pointer-events: auto; }
+
+  /* stage 2 row under the scope (r3 layout). Two groups, no plate: they read by spacing alone
+     (12 px inside a group, 36 px between). Play the tape 680-1170: PLAY 212 · TEMPO 266.
+     Print it 1206-1648: FX 72 · BIN 150 · HATCH 196. Cells keep r2's 66 px height. */
+  #pl-play { left: 680px; top: 454px; width: 212px; height: 66px; flex-direction: column; gap: 5px; font-size: 12px; }
+  #pl-play svg { width: 20px; height: 20px; }
+  /* TEMPO cell: r2's TEMPO cell (label + SYNC over the BPM) and r2's PITCH layout (knob, label over value) share one strip */
+  #tempo { left: 904px; top: 454px; width: 266px; height: 66px; padding: 0 12px; display: flex; align-items: center; gap: 11px; }
+  #tempo .tcol { display: flex; flex-direction: column; justify-content: space-between; align-self: stretch; padding: 9px 0; gap: 0; }
+  #tempo .row { display: flex; align-items: center; gap: 10px; }
+  #tempo .div { width: 1px; align-self: stretch; margin: 11px 0; background: var(--faint); flex: none; }
+  #tempo .pcol { display: flex; align-items: center; gap: 9px; }
+  #tempo .pcol .knob { position: relative; }
+  #tempo .io { display: flex; flex-direction: column; gap: 4px; }
+  #sync { background: transparent; border: 1.3px solid var(--faint); border-radius: 6px; padding: 2px 8px; cursor: pointer;
+          font: 700 11px var(--font); letter-spacing: 0.14em; color: var(--soft); }
+  #sync:hover { border-color: var(--soft); }
+  #sync.on { border-color: var(--teal); color: var(--line); }
+  #tempo .val { font-size: 16px; letter-spacing: 0.02em; white-space: nowrap; display: flex; align-items: baseline; gap: 10px; --ls: 0.02em; }
+  #tempo .io .val { display: block; }
+  #meters { left: 680px; top: 454px; width: 968px; height: 66px; }
+
+  /* stage 2 r3: FX is one toggle cell, icon + word + r2's LOOP-style LED. Icon = a sparkle ("effects"), since the
+     r2 knob face read like any other knob on the panel. Off: faint edge, soft icon and word, hollow dot.
+     On: teal edge, 12% teal fill, teal icon, bright word, lit dot. Cell 80 px (r3's width); print-group gaps 8 px. */
+  #fx { left: 1206px; top: 454px; width: 80px; height: 66px; border-radius: 10px; border: 1.3px solid var(--faint); background: var(--strip);
+        display: flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; padding: 0;
+        font: 700 13px var(--font); letter-spacing: 0.16em; color: var(--soft); }
+  #fx .fxl { padding-left: 0.16em; }
+  #fx .fxi { width: 20px; height: 20px; flex: none; opacity: 0.85; }
+  #fx .led { width: 6px; height: 6px; border-radius: 50%; border: 1.1px solid var(--soft); flex: none; }
+  #fx:hover { border-color: var(--soft); color: var(--line); }
+  #fx.on { border-color: var(--teal); background: rgba(31,227,218,0.12); color: var(--line); }
+  #fx.on .fxi { color: var(--teal); opacity: 1; }
+  #fx.on .led { background: var(--teal); border-color: var(--teal); box-shadow: 0 0 5px rgba(31,227,218,0.7); }
+  #fx:focus-visible { outline: 1px solid var(--teal); outline-offset: 3px; }
+  /* BIN on one line: label, bin name, chevron (r2 had it on two lines) */
+  /* final: BIN is r2's two-line cell again (label + chevron on top, bin name below), at 150 px */
+  #bin { left: 1294px; top: 454px; width: 150px; height: 66px; padding: 9px 12px; border-radius: 10px; flex-direction: column;
+         align-items: stretch; justify-content: space-between; gap: 0; }
+  #bin .row { display: flex; align-items: center; justify-content: space-between; }
+  #hatch { left: 1452px; top: 454px; width: 196px; height: 66px; padding: 0; border-radius: 10px;
+           border: 1.3px solid var(--faint); background: transparent;
+           transition: transform .14s, box-shadow .14s, background-color .3s, border-color .3s; }
+  #hatch .rest { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 11px; letter-spacing: 0.3em;
+                 padding-left: 0.3em; color: var(--soft); opacity: 0.75; transition: opacity .25s, color .15s; }
+  #hatch.idle.hov .rest { color: var(--line); opacity: 1; }
+  #hatch.idle.hov { border-color: var(--soft); }
+  #hatch-cv { position: absolute; left: 0; top: 0; width: 194px; height: 64px; pointer-events: none; transition: opacity .3s; }
+  #hatch .grip { position: absolute; left: 6px; top: 12px; width: 12px; height: 24px; opacity: 0; transition: opacity .3s;
+                 background: radial-gradient(circle, var(--soft) 1.5px, transparent 1.9px) 0 0 / 6px 8px; }
+  #hatch .file { position: absolute; left: 8px; right: 8px; bottom: 5px; text-align: center; font-weight: 400; font-size: 10px;
+                 letter-spacing: 0; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .3s; }
+  #hatch .restale { position: absolute; left: 0; right: 0; bottom: 5px; display: flex; align-items: center; justify-content: center; gap: 6px;
+                    opacity: 0; transition: opacity .25s; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: var(--line); }
+  #hatch .restale svg { width: 15px; height: 15px; }
+  #hatch::after { content: ""; position: absolute; inset: -2px; border-radius: 11px; border: 2px solid var(--teal); opacity: 0; pointer-events: none; }
+  #hatch.busy .rest, #hatch.tile .rest, #hatch.stale .rest { opacity: 0; }
+  #hatch.busy { border: 1.6px solid rgba(31,227,218,0.5); cursor: progress; }
+  #hatch.tile { background: var(--teal); border-color: var(--teal); cursor: grab; }
+  #hatch.tile .file { color: var(--bg); font-weight: 700; }
+  #hatch.tile .grip { background: radial-gradient(circle, var(--bg) 1.5px, transparent 1.9px) 0 0 / 6px 8px; }
+  #hatch.tile::after { animation: tilepulse 1.8s ease-in-out infinite; }
+  @keyframes tilepulse { 0%, 100% { opacity: 0.45; box-shadow: 0 0 0 0 rgba(31,227,218,0); } 50% { opacity: 1; box-shadow: 0 0 16px 1px rgba(31,227,218,0.30); } }
+  #hatch.tile.hov { transform: translate(-2px, -3px); box-shadow: 4px 7px 0 rgba(0,0,0,0.6); }
+  #hatch.tile.prs { cursor: grabbing; transform: translate(-3px, -5px); box-shadow: 6px 11px 4px rgba(0,0,0,0.65); }
+  #hatch.tile .grip, #hatch.tile .file { opacity: 1; }
+  #hatch.stale { background: transparent; border: 1.6px dashed rgba(151,163,166,0.7); }
+  #hatch.stale #hatch-cv { opacity: 0.28; }
+  #hatch.stale .grip { opacity: 0.45; }
+  #hatch.stale .restale { opacity: 1; }
+  /* under HATCH, in the gap above the rack: the loop facts' faint voice (" guessed") */
+  #odd-note { right: 24px; top: 521px; font: 400 12px var(--font); letter-spacing: 0.6px; line-height: 14px;
+              color: rgba(151,163,166,0.55); white-space: nowrap; pointer-events: none; }
+  #bin { border: 1.3px solid var(--faint); background: var(--strip); font-size: 14px; font-weight: 400; letter-spacing: 0.04em; }
+  #bin:hover { border-color: var(--soft); }
+  #bin .path { min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* r2 anchoring: every readout value sits in a fixed-width slot (--n chars incl. letter-spacing), so labels never move */
+  .sl { display: inline-block; white-space: pre; text-align: right; font-variant-numeric: tabular-nums;
+        width: calc(var(--n) * (1ch + var(--ls, 0.04em))); overflow: visible; }
+  .sl.l { text-align: left; }
+
+
+  /* ---------- rack ---------- */
+  #rack { left: 24px; top: 536px; width: 1624px; height: 290px; }
+  /* r2: CHARACTER label removed; the six columns re-centre in the panel (top 25, was 34 under the label) */
+  /* stage 2: column box 247 tall (r2 240) so the name row at 222 sits inside it; divider kept at r2's 8..232 */
+  .col { position: absolute; top: 25px; width: 251px; height: 247px; }
+  .col + .col::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 15px; border-left: 1px solid rgba(151,163,166,0.35); }
+  .knob { position: absolute; cursor: ns-resize; touch-action: none; }
+  .knob svg { display: block; overflow: visible; }
+  .k-arc { stroke: var(--acc); fill: none; stroke-linecap: round; }
+  .k-glow { stroke: var(--acc); fill: none; stroke-linecap: round; opacity: 0.2; }
+  .knob:hover .k-ring { stroke: var(--teal); }
+  .secl { position: absolute; left: 0; right: 0; top: 4px; text-align: center; }
+  .namel { position: absolute; left: 0; right: 0; top: 222px; text-align: center; display: flex; justify-content: center; gap: 12px; align-items: baseline; }
+  .namel .nm { font: 700 19px var(--font); letter-spacing: 0.14em; color: var(--soft); }
+  .namel .val { font-size: 13px; }
+  .band { position: absolute; cursor: ew-resize; touch-action: none; }
+  .band-fill { fill: var(--acc); }
+  .band-line { stroke: var(--acc); fill: none; }
+  .bandv { position: absolute; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--soft); letter-spacing: 0.03em; --ls: 0.03em; }
+  .bandv b { color: var(--line); font-weight: 400; }
+  .ter { position: absolute; display: flex; align-items: center; gap: 12px; }
+  .ter .knob { position: relative; }
+  /* panel power (mock panel-power-2026-10-03, variant A): a light leads each name row; only the light toggles the panel (10-08: the name and its value no longer do) */
+  .pwr { position: absolute; width: 26px; height: 26px; padding: 0; margin: 0; border: 0; background: transparent; cursor: pointer;
+         display: flex; align-items: center; justify-content: center; }
+  .pwr i { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--soft); transition: background .1s, box-shadow .1s, border-color .1s; }
+  .pwr:hover i { border-color: var(--line); }
+  .pwr.on i { background: var(--teal); border-color: var(--teal); box-shadow: 0 0 6px rgba(31,227,218,0.85), 0 0 14px rgba(31,227,218,0.35); }
+  #stage.bypass .pwr.on i { background: var(--dormant); border-color: var(--dormant); box-shadow: none; }
+  .namel .pwr { position: static; margin-right: -6px; align-self: center; }
+  /* a value readout you can click to type in (typeIn) */
+  .tv { cursor: text; }
+  .tv:hover { color: var(--teal); }
+  .tv input { width: max(100%, 6ch); height: 1.5em; box-sizing: border-box; background: var(--deep); border: 1.3px solid var(--teal); border-radius: 5px;
+              outline: none; padding: 0 3px; color: var(--line); font: inherit; letter-spacing: inherit; text-align: center; font-variant-numeric: tabular-nums; }
+  /* REVERB TYPE (10-17): PLATE / HALL / SPRING, a three-way stack right of REVERB's big knob, centred on it. Knob
+     and stack are centred in the column as one group (Andrew, 10-17: layout B), so both sit RTYPE_SHIFT (-35.25 px)
+     left of where they would alone. LOOP-toggle type; the active choice takes the accent while the panel is lit,
+     a grey ring when it isn't */
+  .rtype { position: absolute; left: 152.75px; top: 131px; width: 60px; display: flex; flex-direction: column;
+           border: 1.2px solid var(--faint); border-radius: 9px; overflow: hidden; }
+  .rtype button { height: 24px; margin: 0; padding: 0 0 0 0.12em; border: 0; background: transparent; cursor: pointer;
+                  font: 700 11px var(--font); letter-spacing: 0.12em; color: var(--soft); }
+  .rtype button + button { border-top: 1px solid var(--faint); }
+  .rtype button:hover { color: var(--line); background: rgba(151,163,166,0.07); }
+  .rtype button.on { color: var(--line); background: rgba(31,227,218,0.10); box-shadow: inset 0 0 0 1.4px var(--acc); cursor: default; }
+  .rtype.unlit button.on { background: rgba(151,163,166,0.08); box-shadow: inset 0 0 0 1.2px var(--soft); }
+  .rtype button:focus-visible { outline: 1px solid var(--teal); outline-offset: -3px; }
+  #stage.bypass .rtype button.on { background: rgba(151,163,166,0.08); }
+  /* off: the panel greys and dims, settings kept (knobs stay draggable) */
+  .col .knob, .col .band, .col .secl, .col .bandv, .col .ter, .col .rtype, .col .namel .nm, .col .namel .val { transition: opacity .12s; }
+  .col.off .knob, .col.off .band, .col.off .secl, .col.off .bandv, .col.off .ter, .col.off .rtype, .col.off .namel .nm, .col.off .namel .val { opacity: 0.32; }
+  .col.off .knob, .col.off .band { pointer-events: auto; }
+
+  /* ---------- master ---------- */
+  .mst { top: 856px; height: 61px; display: flex; align-items: center; padding: 0 14px; gap: 12px; }
+  .mst .lab { font-size: 12px; }
+  #m-eq { left: 24px; width: 330px; }
+  #m-eq .evcol { display: flex; flex-direction: column; gap: 4px; }
+  #m-eq .ev { font-size: 11px; color: var(--soft); white-space: nowrap; letter-spacing: 0.04em; }
+  #m-eq .ev b { color: var(--line); font-weight: 400; }
+  #m-in { left: 366px; width: 150px; padding: 0 10px; gap: 10px; }
+  #m-out { left: 528px; width: 150px; padding: 0 10px; gap: 10px; }
+  .mst .knob { position: relative; }
+  .mst .io { display: flex; flex-direction: column; gap: 3px; }
+  .mst .io .val { font-size: 13px; white-space: nowrap; }
+  #m-mix { left: 690px; width: 330px; }
+  #mixtrack { position: relative; flex: 1; height: 30px; cursor: ew-resize; touch-action: none; }
+  #mixtrack .rail { position: absolute; left: 6px; right: 6px; top: 14px; height: 1.6px; background: rgba(151,163,166,0.55); }
+  #mixtrack .fill { position: absolute; left: 6px; top: 13.5px; height: 2.4px; background: rgba(31,227,218,0.9); }
+  #mixtrack .hdl { position: absolute; top: 4px; width: 8px; height: 22px; margin-left: -4px; background: var(--line);
+                   border: 1px solid rgba(151,163,166,0.85); border-radius: 2px; }
+  #m-preset { left: 1032px; width: 300px; justify-content: space-between; }
+  #m-preset .ibtn { width: 38px; height: 38px; }
+  #pname { flex: 1; text-align: center; font: 700 16px var(--font); letter-spacing: 0.06em; cursor: pointer; color: var(--soft); }
+  #pname.set { color: var(--teal); }
+  .pill { top: 856px; height: 61px; border-radius: 31px; background: transparent; border: 1.3px solid var(--faint);
+          cursor: pointer; font: 700 13px var(--font); letter-spacing: 0.12em; color: rgba(238,243,245,0.85); }
+  .pill:hover { border-color: var(--soft); color: var(--line); }
+  .pill { display: flex; align-items: center; justify-content: center; gap: 9px; }
+  .pill svg { width: 20px; height: 20px; flex: none; }
+  .pill.on { border: 2.4px solid var(--teal); color: var(--teal); }
+  #m-byp { left: 1344px; width: 146px; }
+  #m-gm { left: 1502px; width: 146px; }
+
+  /* ---------- popup ---------- */
+  #pop { position: absolute; z-index: 20; display: none; background: #0a0f10; border: 1.3px solid var(--soft); border-radius: 10px;
+         padding: 8px; box-shadow: 0 14px 40px rgba(0,0,0,0.7); }
+  #pop.open { display: block; }
+  #pop input { width: 100%; height: 34px; background: var(--deep); border: 1.3px solid var(--faint); border-radius: 7px;
+               color: var(--line); font: 400 13px var(--font); padding: 0 10px; outline: none; letter-spacing: 0.04em; }
+  #pop input:focus { border-color: var(--teal); }
+  #pop ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 260px; overflow: auto; }
+  #pop li { padding: 8px 10px; border-radius: 6px; font-size: 13px; letter-spacing: 0.06em; cursor: pointer; display: flex; justify-content: space-between; color: var(--line); }
+  #pop li .n { color: var(--soft); font-size: 11px; }
+  #pop li.cur { color: var(--teal); }
+  #pop li:hover, #pop li.hl { background: rgba(31,227,218,0.18); }
+  #pop li.new { color: var(--soft); border-top: 1px solid var(--faint); border-radius: 0 0 6px 6px; margin-top: 4px; }
+  #pop li.new:hover, #pop li.new.hl { color: var(--teal); text-shadow: 0 0 8px rgba(31,227,218,0.55); }
+  #pop .none { padding: 8px 10px; font-size: 12px; color: var(--soft); }
+  #pop li.info { color: var(--soft); font-size: 11px; cursor: default; }
+  #pop li.info:hover { background: none; }
+  #pop li.head { color: var(--soft); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; cursor: default; padding: 6px 10px 4px; }
+  #pop li.head:hover { background: none; }
+  #pop li.sep { border-top: 1px solid var(--faint); border-radius: 0 0 6px 6px; margin-top: 4px; }
+  #pop li .p { color: var(--soft); font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+               max-width: 170px; margin-left: 10px; }
+  /* the window's corner grip: drag to resize (ln_resize). Hosts with a resizable frame work too. */
+  #grip { left: 1640px; top: 921px; width: 30px; height: 18px; cursor: nwse-resize; touch-action: none; opacity: 0.55; }
+  #grip:hover, #grip.on { opacity: 1; }
+  #grip svg { display: block; width: 30px; height: 18px; }
+  #bank .name.missing { color: var(--soft); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="frame" class="abs"></div>
+
+  <!-- ================= header ================= -->
+  <div id="logo" class="abs">
+    <svg width="48" height="43" viewBox="-29 -26 58 52" aria-hidden="true">
+      <polygon id="hx1" fill="none" stroke="#eef3f5" stroke-width="2.4" stroke-linejoin="miter"/>
+      <polygon id="hx2" fill="none" stroke="#97a3a6" stroke-width="1.5" stroke-linejoin="miter"/>
+      <polygon id="hx3" fill="rgba(31,227,218,0.2)" stroke="#1fe3da" stroke-width="1.9" stroke-linejoin="miter"/>
+    </svg>
+    <span id="wordmark">LOOPNEST</span>
+  </div>
+
+  <div id="tabs" class="abs" role="tablist">
+    <button class="tab on" data-mode="audition" role="tab" aria-label="AUDITION"><svg class="ico" viewBox="0 0 30 26" aria-hidden="true"><path d="M6 17 V13 A9 9 0 0 1 24 13 V17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><rect x="3.8" y="14.6" width="5" height="8.2" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="21.2" y="14.6" width="5" height="8.2" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="t">AUDITION</span></button>
+    <button class="tab" data-mode="fx" role="tab" aria-label="LIVE"><svg class="ico" viewBox="0 0 30 26" aria-hidden="true"><g transform="rotate(-35 15 13)" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M0.8 13 H5" stroke-width="1.6"/><rect x="5" y="9" width="9" height="8" rx="1.6" stroke-width="1.6"/><path d="M7.6 11.2 V14.8 M10.2 11.2 V14.8" stroke-width="1.1"/><rect x="14" y="10.4" width="2.4" height="5.2" rx="0.6" stroke-width="1.4"/><rect x="16.4" y="11.6" width="7.6" height="2.8" stroke-width="1.4"/><path d="M24.9 11.6 H26.4 Q29.2 13 26.4 14.4 H24.9 Z" stroke-width="1.4"/></g></svg><span class="t">LIVE</span></button>
+  </div>
+
+  <!-- ================= hero ================= -->
+  <div id="nest" class="abs group">
+    <button id="bank" class="strip dimmable" aria-haspopup="listbox" aria-label="Bank"><span class="name" id="bank-name"></span><span class="chev"><svg class="caret" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1 L5 5 L9 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+    <label id="n-search" class="strip dimmable"><svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="5.8" cy="5.8" r="4.4" fill="none" stroke="#97a3a6" stroke-width="1.4"/><path d="M9.2 9.2 L12.8 12.8" stroke="#97a3a6" stroke-width="1.5" stroke-linecap="round"/></svg><input id="n-q" type="text" placeholder="SEARCH" spellcheck="false" autocomplete="off" aria-label="Search the nest"><span id="n-count"></span><button id="n-x" aria-label="Clear search" tabindex="-1">×</button></label>
+    <div id="n-step" class="strip dimmable"><button class="ibtn" id="n-up" aria-label="Previous tape" tabindex="-1">◀</button><div id="n-pos" title="Type a loop number"></div><button class="ibtn" id="n-dn" aria-label="Next tape" tabindex="-1">▶</button></div>
+    <div id="n-rack" class="dimmable" role="listbox" aria-label="Nest"></div>
+    <div id="n-rail" class="dimmable"><div id="n-thumb"></div></div>
+    <div id="n-drop" aria-hidden="true"></div>
+    <canvas id="cas"></canvas>
+    <svg id="n-wire" viewBox="0 0 640 444" aria-hidden="true">
+      <path id="wire-p" fill="none" stroke="#1fe3da" stroke-width="1.6" stroke-linejoin="round" pathLength="1"/>
+      <circle id="wire-a" r="2.6" fill="#1fe3da"/><circle id="wire-b" r="2.6" fill="#1fe3da"/>
+    </svg>
+    <button id="spin" class="key" aria-label="Spin: load a random tape from the rack"><canvas id="dial"></canvas><span class="lbl">SPIN</span></button>
+    <button id="h-back" class="hist" aria-label="Back to the loop before" disabled>◀</button>
+    <button id="h-fwd" class="hist" aria-label="Forward to the loop after" disabled>▶</button>
+  </div>
+  <canvas id="scope" class="abs"></canvas>
+  <div id="ctx-a" class="abs" style="width:1px;height:1px;pointer-events:none"></div>
+
+  <button id="pl-play" class="abs key layer audonly"><svg id="play-ico" viewBox="0 0 20 20" aria-hidden="true"></svg>PLAY</button>
+  <button id="loop-t" class="abs layer audonly" aria-pressed="false" aria-label="Loop"><svg viewBox="0 0 20 20" aria-hidden="true">
+    <path d="M13.6 3.8 A7 7 0 1 0 16.8 8.2" fill="none" stroke-width="2.2" stroke-linecap="round"/>
+    <path class="hd" d="M16.9 3.2 L17.3 8.6 L12.4 7.6 Z"/></svg>LOOP<span class="led" aria-hidden="true"></span></button>
+  <button id="snap-t" class="abs layer audonly" aria-pressed="true" aria-label="Snap the trim handles to the drum hits"></button>
+  <button id="bpm-t" class="abs layer audonly" aria-haspopup="listbox" aria-label="Loop tempo" style="display:none"></button>
+  <input id="bpm-in" class="abs layer audonly" type="text" inputmode="decimal" spellcheck="false" autocomplete="off" aria-label="The file's tempo, BPM">
+  <div id="tempo" class="abs strip layer audonly">
+    <div class="tcol">
+      <div class="row"><span class="lab">Tempo</span><button id="sync">SYNC</button></div>
+      <div class="val" id="tempo-line" title="Drag up or down to set a tempo. SYNC snaps back to the host."></div>
+    </div>
+    <span class="div" aria-hidden="true"></span>
+    <div class="pcol" id="pitch"><span id="pitch-knob"></span><span class="io"><span class="lab">Pitch</span><span class="val sl" style="--n:6" id="pitch-v">+0 st</span></span></div>
+  </div>
+  <canvas id="meters" class="abs layer fxonly"></canvas>
+
+  <button id="fx" class="abs layer audonly" role="switch" aria-checked="false" aria-label="Print with FX"><svg class="fxi" viewBox="0 0 20 20" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linejoin="round"><path d="M8.5 3.5 Q9.4 9.6 15 11 Q9.4 12.4 8.5 18.5 Q7.6 12.4 2 11 Q7.6 9.6 8.5 3.5 Z" stroke-width="1.5"/><path d="M15.5 1.6 Q15.9 3.7 17.8 4.2 Q15.9 4.7 15.5 6.8 Q15.1 4.7 13.2 4.2 Q15.1 3.7 15.5 1.6 Z" stroke-width="1.2"/></g></svg><span class="fxl">FX</span><span class="led" aria-hidden="true"></span></button>
+  <button id="bin" class="abs key layer audonly" aria-haspopup="listbox" aria-label="Print bin">
+    <span class="row"><span class="lab">Bin</span><span class="chev"><svg class="caret" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1 L5 5 L9 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span>
+    <span class="path" id="bin-path"></span>
+  </button>
+  <button id="hatch" class="abs key layer audonly" tabindex="-1">
+    <span class="rest">HATCH</span>
+    <canvas id="hatch-cv"></canvas>
+    <span class="grip" aria-hidden="true"></span>
+    <span class="file" id="hatch-file"></span>
+    <span class="restale"><svg viewBox="0 0 44 44" aria-hidden="true"><path d="M34.5 15 A14 14 0 1 0 36 26" fill="none" stroke="#eef3f5" stroke-width="3.2" stroke-linecap="round"/><path d="M38 6 L36.4 17.6 L25.6 13.8 Z" fill="#eef3f5"/></svg>RE-HATCH</span>
+  </button>
+  <span id="odd-note" class="abs layer audonly" hidden>odd length, turn Warp off in Live</span>
+
+
+  <!-- ================= rack ================= -->
+  <div id="rack" class="abs group" aria-label="Character"></div>
+
+  <!-- ================= master ================= -->
+  <div id="m-eq" class="abs strip mst"><span class="lab">EQ</span><div class="evcol"><span class="ev" id="eq-v">LOW CUT <b class="sl l" style="--n:8" id="eq-lo"></b>&nbsp;·&nbsp; HIGH CUT <b class="sl l" style="--n:8" id="eq-hi"></b></span><span id="eq-band-host" style="position:relative;width:262px;height:26px;display:block"></span></div></div>
+  <div id="m-in" class="abs strip mst"><span id="in-k"></span><span class="io"><span class="lab">Input</span><span class="val sl" style="--n:8" id="in-v"></span></span></div>
+  <div id="m-out" class="abs strip mst"><span id="out-k"></span><span class="io"><span class="lab">Output</span><span class="val sl" style="--n:8" id="out-v"></span></span></div>
+  <div id="m-mix" class="abs strip mst"><span class="lab">Mix</span><span class="cap">DRY</span>
+    <div id="mixtrack"><div class="rail"></div><div class="fill"></div><div class="hdl"></div></div>
+    <span class="cap">WET</span><span class="val sl" style="--n:4" id="mix-v"></span></div>
+  <div id="m-preset" class="abs strip mst"><span class="lab">Preset</span><button class="ibtn" id="p-prev" aria-label="Previous preset">◀</button>
+    <span id="pname">INIT</span><button class="ibtn" id="p-next" aria-label="Next preset">▶</button></div>
+  <button id="m-byp" class="abs pill" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6.2 5.6 A6.4 6.4 0 1 0 13.8 5.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M10 2.6 V9.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>BYPASS</button>
+  <button id="m-gm" class="abs pill" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3 V17 M14 3 V17" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="10.7" width="6" height="3.4" fill="currentColor"/><rect x="11" y="6.2" width="6" height="3.4" fill="currentColor"/></svg>GAIN MATCH</button>
+
+  <div id="pop"><input id="pop-q" type="text" spellcheck="false" autocomplete="off"><ul id="pop-list"></ul></div>
+  <div id="grip" class="abs" aria-label="Resize" title="Drag to resize"><svg viewBox="0 0 30 18" aria-hidden="true"><path d="M27 6 L17 16 M27 10.5 L21.5 16 M27 15 L26 16" stroke="#97a3a6" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+</div>
+
+<script type="module">
+// LoopNest v2 stage 2: the plugin page. A port of the locked mock
+// (mockups/stage2-styled-2026-09-29/mock-stage2-final.html): same look, layout, type
+// and motion; every fake-data path is replaced by the native bridge (ui/BRIDGE.md).
+import * as Juce from "./juce/index.js";
+
+// ================================================================ constants
+const W = 1672, H = 941;
+const FONT = '"JBM Local","JetBrains Mono",ui-monospace,Menlo,monospace';
+const RGB = {
+  line:  [238, 243, 245], soft: [151, 163, 166], faint: [52, 63, 65], teal: [31, 227, 218],
+};
+const col = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const mix = (c1, c2, t, a) =>
+  `rgba(${Math.round(c1[0] + (c2[0] - c1[0]) * t)},${Math.round(c1[1] + (c2[1] - c1[1]) * t)},${Math.round(c1[2] + (c2[2] - c1[2]) * t)},${a})`;
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const $ = id => document.getElementById(id);
+const stage = $('stage');
+
+// logo hexes (flat-top, native drawLogo proportions 33 / 22 / 11)
+for (const [id, R] of [['hx1', 24], ['hx2', 16], ['hx3', 8]]) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i; pts.push((Math.cos(a) * R).toFixed(2) + ',' + (Math.sin(a) * R).toFixed(2)); }
+  $(id).setAttribute('points', pts.join(' '));
+}
+
+// ================================================================ bridge (ui/BRIDGE.md)
+const be = window.__JUCE__.backend;
+// One slider relay per float parameter, relay name = parameter id (Source/WebEditor.cpp kSliderIds).
+const SLIDER_IDS = ['pitch', 'pitchGlide', 'input', 'output', 'start', 'end', 'mix',
+  'warp', 'warpRate', 'drive', 'driveTone', 'flutter', 'flutterRate',
+  'echo', 'reverb', 'echoLo', 'echoHi', 'reverbLo', 'reverbHi',
+  'eqLo', 'eqHi', 'width', 'widthLo', 'widthHi', 'reverbDecay', 'echoTime', 'widthMid'];
+// Panel power, one per rack column in chain order (CharacterParams::powerIds()); default ON.
+const POWER_IDS = ['warpOn', 'flutterOn', 'driveOn', 'echoOn', 'reverbOn', 'widthOn'];
+const TOGGLE_IDS = ['bypass', 'gainMatch', ...POWER_IDS];
+const TOGGLE_DEFAULTS = { bypass: false, gainMatch: false, warpOn: true, flutterOn: true, driveOn: true, echoOn: true, reverbOn: true, widthOn: true };
+// The processor's defaults (PluginProcessor.cpp createParameterLayout): double-click resets
+// a control to these, and __ln.check() compares the relays against them.
+const PARAM_DEFAULTS = { pitch: 0, pitchGlide: 0, input: 0, output: 0, start: 0, end: 1, mix: 100,
+  warp: 0, warpRate: 40, drive: 0, driveTone: 0, flutter: 0, flutterRate: 50, echo: 0, reverb: 0,
+  echoLo: 0, echoHi: 1, reverbLo: 0, reverbHi: 1, eqLo: 0, eqHi: 1, width: 0, widthLo: 0, widthHi: 1,
+  reverbDecay: 31, echoTime: 44, widthMid: 0 };
+const sl = {}, tg = {}, propsOk = {}, tgSeen = {};
+let relayDirty = true;                       // a relay moved: re-render the controls next frame
+for (const id of SLIDER_IDS) {
+  const s = Juce.getSliderState(id); sl[id] = s;
+  s.valueChangedEvent.addListener(() => { relayDirty = true; });
+  s.propertiesChangedEvent.addListener(() => { propsOk[id] = true; relayDirty = true; });
+}
+for (const id of TOGGLE_IDS) {
+  const s = Juce.getToggleState(id); tg[id] = s;
+  s.valueChangedEvent.addListener(() => { tgSeen[id] = true; relayDirty = true; });
+}
+// REVERB TYPE: a combo-box relay (WebComboBoxRelay "reverbType"), choices Plate / Hall / Spring.
+// No choice shows until the relay's first value lands (rtypeGet() = -1); written only once its choices are in.
+const REVERB_TYPES = ['PLATE', 'HALL', 'SPRING'], REVERB_TYPE_DEFAULT = 1;
+const rtRelay = Juce.getComboBoxState('reverbType');
+let rtSeen = false;
+rtRelay.valueChangedEvent.addListener(() => { rtSeen = true; relayDirty = true; });
+rtRelay.propertiesChangedEvent.addListener(() => { propsOk.reverbType = true; relayDirty = true; });
+const rtypeGet = () => rtSeen ? clamp(Math.round(rtRelay.value * (REVERB_TYPES.length - 1)), 0, REVERB_TYPES.length - 1) : -1;
+function rtypeSet(i) {
+  if (!propsOk.reverbType || rtRelay.properties.choices.length !== REVERB_TYPES.length) return;
+  rtRelay.setChoiceIndex(i); rtSeen = true; relayDirty = true;   // one host undo step (the attachment's complete gesture)
+}
+// natural <-> normalised with the relay's own range (JUCE NormalisableRange: n = ((v - start) / span) ^ skew)
+function toNorm(id, v) {
+  const p = sl[id].properties, span = p.end - p.start;
+  return span > 0 ? Math.pow(clamp((v - p.start) / span, 0, 1), p.skew) : 0;
+}
+function fromNorm(id, n) { const p = sl[id].properties; return Math.pow(clamp(n, 0, 1), 1 / p.skew) * (p.end - p.start) + p.start; }
+const pget = id => sl[id].getScaledValue();
+function pset(id, v) { if (!propsOk[id]) return; sl[id].setNormalisedValue(toNorm(id, v)); relayDirty = true; }
+const pbegin = id => sl[id].sliderDragStarted();
+const pend = id => sl[id].sliderDragEnded();
+const tget = id => !!tg[id].getValue();
+function tset(id, b) { tg[id].setValue(!!b); tgSeen[id] = true; relayDirty = true; }
+// A panel's power: ON until the relay's first value lands (the JS toggle starts false), so the rack never flashes off at open.
+const pon = id => !tgSeen[id] || tget(id);
+// K[id] reads and writes the relay, so the mock's control code keeps its shape.
+const K = new Proxy({}, { get: (_, id) => pget(id), set: (_, id, v) => { pset(id, v); return true; } });
+
+const nf = {};
+for (const n of ['ln_ready', 'ln_spin', 'ln_spinPick', 'ln_back', 'ln_forward', 'ln_play', 'ln_loop', 'ln_live', 'ln_sync', 'ln_printFx', 'ln_preset',
+                 'ln_presetStep', 'ln_seek', 'ln_bank', 'ln_extract', 'ln_extractCancel', 'ln_overlay',
+                 'ln_pick', 'ln_openRecent', 'ln_resize', 'ln_bpm', 'ln_bpmFit', 'ln_barOrigin', 'ln_bin', 'ln_binNew', 'ln_binShow', 'ln_tempo']) {
+  const f = Juce.getNativeFunction(n);
+  nf[n.slice(3)] = (...a) => { try { Promise.resolve(f(...a)).catch(e => console.error(n + ': ' + e)); } catch (e) { console.error(n + ': ' + e); } };
+}
+
+// ================================================================ app state
+let lastState = null;                        // the latest ln_state
+let files = { folder: '', path: '', names: [], recents: [] };   // the latest ln_files
+const PEAKS = { path: '', name: '', seconds: 0, raw: new Float32Array(0), n: 0, hi: new Float32Array(0), hits: new Float64Array(0), seen: false };   // the latest ln_peaks
+// Optimistic toggles: a click shows at once and wins over ln_state for 300 ms, then state rules.
+const HOLD = {};
+function hold(key, v) { HOLD[key] = { v, until: performance.now() + 300 }; }
+function val(key) { const h = HOLD[key]; if (h && performance.now() < h.until) return h.v; return lastState ? lastState[key] : undefined; }
+const liveNow = () => !!val('live');
+const S_ = { hatch: 'idle' };                // page-local UI state (the HATCH tile's animation phase)
+// The factory preset names (Source/FactoryPresets.h, kFactoryPresets order); INIT is -1.
+const PRESET_NAMES = ['Vinyl', 'Tape', 'Cassette', 'Dust', 'Radio', 'Crush', 'Slap', 'Plate', 'Hall', 'Width', 'Lo-Fi'];
+// cassette motion parameters (tempo for LIVE's free-running reels; the character amounts)
+const P = { tempo: 90, warp: 0, flutter: 0, drive: 0, echo: 0 };
+const fmtNum = v => Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1);
+
+// ================================================================ canvases + scaling
+let fit = 1, B = 1;
+const cas = $('cas'), cctx = cas.getContext('2d', { alpha: false });
+const scope = $('scope'), sctx2 = scope.getContext('2d', { alpha: false });
+const meters = $('meters'), mctx = meters.getContext('2d');
+const CELL = { w: 326, h: 234 }, SC = { w: 968, h: 366 }, MT = { w: 968, h: 66 };   // stage 2: cassette canvas = the deck only (BAR / BEAT line cut)
+const SCA_W = SC.w;                             // v2-hifi-b audition scope was 700; the quiet HATCH hands back 268
+const shell = document.createElement('canvas'), shx = shell.getContext('2d');
+const scA = document.createElement('canvas'), scAx = scA.getContext('2d');   // audition scope cache
+const scF = document.createElement('canvas'), scFx = scF.getContext('2d');   // FX scope chrome cache
+
+function setSpacing(c, px) { if ('letterSpacing' in c) c.letterSpacing = px + 'px'; }
+function sizeCanvas(cv, w, h) { cv.width = Math.max(1, Math.round(w * B)); cv.height = Math.max(1, Math.round(h * B)); }
+
+// The stage is the mock's 1672 x 941 reference space, scaled from the top-left corner to the
+// window, so page px = ref px x fit exactly like the native overlay (WebEditor::updateOverlay).
+function resize() {
+  fit = Math.min(innerWidth / W, innerHeight / H) || 1;
+  stage.style.transform = `scale(${fit})`;
+  B = fit * (window.devicePixelRatio || 1);
+  sizeCanvas(cas, CELL.w, CELL.h); sizeCanvas(shell, CELL.w, CELL.h);
+  sizeCanvas(scope, SC.w, SC.h); sizeCanvas(scA, SC.w, SC.h); sizeCanvas(scF, SC.w, SC.h);
+  sizeCanvas(meters, MT.w, MT.h);
+  sizeCanvas(hcv, HK.w, HK.h); redrawHatch(); dialDirty = true;
+  buildShell(); buildScopeA(); buildScopeF();
+}
+
+function rrect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function circle(c, x, y, r) { c.beginPath(); c.arc(x, y, r, 0, TAU); }
+
+// ================================================================ CASSETTE (ported from v2-motion-sketch)
+// Drawn in ReelBay's 459x308 design space, scaled to fit the hero cell.
+const S   = 314 / 459;
+const CAS = { x: (CELL.w - 459 * S) / 2, y: 12 };           // cassette at nest (306, 104), as r2 / r3
+const LR  = { x: CAS.x + 44 * S, y: CAS.y + 15 * S, w: 371 * S, h: 36 * S };   // label strip, cell coords
+let bumpY = 0;                                   // tape-thrown-on drop, cell px
+const lw  = w => (w * 1.15) / S;
+const R_REEL = 91, R_HUB = 0.30 * 91, R_MAX = 0.97 * 91;
+const RH2 = R_HUB * R_HUB, AREA = R_MAX * R_MAX - RH2;
+const C1 = { x: 120, y: 146 }, C2 = { x: 332, y: 146 };
+const ROLLERS = [ { x: 54, y: 240, r: 13 }, { x: 117, y: 280, r: 12 }, { x: 335, y: 280, r: 12 }, { x: 398, y: 240, r: 13 } ];
+const GX = 226, GY = 146;
+const LIN_90 = 110;
+const K_LEN = LIN_90 * (64 * 60 / 90);
+
+let env1 = 0, env = 0, p = 0, pd = 0;
+let rwOn = false, rwT0 = 0, rwFrom = 0;
+let aL = 0, aR = 0, jit = 0, tapeL = 0;
+let wowPh = 0, wowPh2 = 0, wowSig = 0;
+let flPh1 = 0, flPh2 = 0, flPh3 = 0, flNoise = 0, flSig = 0, trPh = 0;
+let meter = 0, kickEnv = 0, modeT = 0, t = 0;
+let rL = Math.sqrt(RH2 + 0.94 * AREA), rR = Math.sqrt(RH2 + 0.06 * AREA);
+const HN = 256;
+const hT = new Float64Array(HN), hL = new Float64Array(HN), hR = new Float64Array(HN);
+let hHead = 0, hCount = 0;
+
+function casT(c) { c.setTransform(B * S, 0, 0, B * S, B * CAS.x, B * (CAS.y + bumpY)); }
+
+function buildShell() {
+  const c = shx;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = '#060809'; c.fillRect(0, 0, shell.width, shell.height);
+  casT(c);
+  c.lineJoin = 'round';
+  rrect(c, 2, 2, 455, 304, 22);  c.strokeStyle = col(RGB.line, 1); c.lineWidth = lw(1.8); c.stroke();
+  rrect(c, 10, 8, 439, 292, 18); c.strokeStyle = col(RGB.soft, 1); c.lineWidth = lw(1.1); c.stroke();
+  for (const [x, y] of [[21, 20], [438, 20], [21, 288], [438, 288]]) {
+    const r = 8, s = r * 0.55;
+    c.strokeStyle = col(RGB.soft, 0.7);
+    circle(c, x, y, r); c.lineWidth = lw(1.2); c.stroke();
+    c.beginPath(); c.moveTo(x - s, y); c.lineTo(x + s, y); c.moveTo(x, y - s); c.lineTo(x, y + s);
+    c.lineWidth = lw(1.1); c.stroke();
+  }
+  c.strokeStyle = col(RGB.soft, 1); c.lineWidth = lw(1.2);
+  for (const g of ROLLERS) { circle(c, g.x, g.y, g.r); c.stroke(); }
+  rrect(c, 44, 15, 371, 36, 5); c.strokeStyle = col(RGB.line, 1); c.lineWidth = lw(1.3); c.stroke();
+  c.beginPath(); c.moveTo(80, 300); c.lineTo(128, 236); c.lineTo(331, 236); c.lineTo(379, 300);
+  c.strokeStyle = col(RGB.soft, 1); c.lineWidth = lw(1.2); c.stroke();
+  c.beginPath(); c.moveTo(208, 300); c.lineTo(208, 286); c.lineTo(251, 286); c.lineTo(251, 300);
+  c.strokeStyle = col(RGB.line, 1); c.lineWidth = lw(1.2); c.stroke();
+  rrect(c, 219, 278, 21, 6, 1.5); c.strokeStyle = col(RGB.soft, 1); c.lineWidth = lw(1.0); c.stroke();
+  for (const x of [160, 299]) { circle(c, x, 290, 4.5); c.strokeStyle = col(RGB.soft, 1); c.lineWidth = lw(1.0); c.stroke(); }
+}
+
+const GRAIN = [];
+(function makeGrain() {
+  const N = 256;
+  for (let k = 0; k < 6; k++) {
+    const g = document.createElement('canvas'); g.width = g.height = N;
+    const gc = g.getContext('2d');
+    const img = gc.createImageData(N, N), d = img.data;
+    for (let i = 0; i < N * N; i++) {
+      if (Math.random() < 0.075) { const o = i * 4; d[o] = 238; d[o + 1] = 243; d[o + 2] = 245; d[o + 3] = 60 + Math.random() * 195; }
+    }
+    gc.putImageData(img, 0, 0);
+    GRAIN.push(cctx.createPattern(g, 'repeat'));
+  }
+})();
+let grainIdx = 0, grainOx = 0, grainOy = 0, grainNext = 0;
+
+const TP = new Float32Array(2 * 200);
+let tpN = 0, tpBotA = 0, tpBotB = 0;
+const segNx = new Float32Array(6), segNy = new Float32Array(6);
+const NODES = [ { x: C1.x, y: C1.y, r: 0 }, ...ROLLERS.map(o => ({ ...o })), { x: C2.x, y: C2.y, r: 0 } ];
+
+function buildTape(bowW, tremF) {
+  NODES[0].r = rL; NODES[5].r = rR;
+  const N = NODES.length;
+  for (let i = 0; i < N - 1; i++) {
+    const a = NODES[i], b = NODES[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y, D = Math.hypot(dx, dy);
+    const base = Math.atan2(dy, dx);
+    const off = Math.acos(Math.max(-1, Math.min(1, (a.r - b.r) / D)));
+    const mx = (a.x + b.x) / 2 - GX, my = (a.y + b.y) / 2 - GY;
+    const n1x = Math.cos(base + off), n1y = Math.sin(base + off);
+    const n2x = Math.cos(base - off), n2y = Math.sin(base - off);
+    const first = (mx * n1x + my * n1y) >= (mx * n2x + my * n2y);
+    segNx[i] = first ? n1x : n2x; segNy[i] = first ? n1y : n2y;
+  }
+  tpN = 0;
+  const push = (x, y) => { TP[tpN * 2] = x; TP[tpN * 2 + 1] = y; tpN++; };
+  const STEPS = 20;
+  for (let i = 0; i < N - 1; i++) {
+    const a = NODES[i], b = NODES[i + 1], nx = segNx[i], ny = segNy[i];
+    const px = a.x + a.r * nx, py = a.y + a.r * ny;
+    const qx = b.x + b.r * nx, qy = b.y + b.r * ny;
+    const len = Math.hypot(qx - px, qy - py);
+    const bowAmp = bowW * (i === 2 ? 8 : 4);
+    const bow = bowAmp * (0.75 * Math.sin(wowPh + i * 0.8) + 0.25 * Math.sin(wowPh2 + i * 1.9));
+    const trAmp = tremF * 1.5 * (0.7 + 0.6 * Math.random());
+    const k = len / 7;
+    if (i === 2) tpBotA = tpN;
+    for (let s = (i === 0 ? 0 : 1); s <= STEPS; s++) {
+      const u = s / STEPS, envU = Math.sin(Math.PI * u);
+      const disp = (bow + trAmp * Math.sin(u * k + trPh + i * 1.7)) * envU;
+      push(px + (qx - px) * u + nx * disp, py + (qy - py) * u + ny * disp);
+    }
+    if (i === 2) tpBotB = tpN - 1;
+    if (i + 1 < N - 1) {
+      const nd = NODES[i + 1];
+      const aIn = Math.atan2(segNy[i], segNx[i]), aOut = Math.atan2(segNy[i + 1], segNx[i + 1]);
+      let d = aOut - aIn;
+      while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU;
+      const out = ang => { const x = nd.x + nd.r * Math.cos(ang) - GX, y = nd.y + nd.r * Math.sin(ang) - GY; return x * x + y * y; };
+      const dAlt = d + (d > 0 ? -TAU : TAU);
+      if (out(aIn + d * 0.5) < out(aIn + dAlt * 0.5)) d = dAlt;
+      for (let s = 1; s <= 12; s++) { const ang = aIn + d * s / 12; push(nd.x + nd.r * Math.cos(ang), nd.y + nd.r * Math.sin(ang)); }
+    }
+  }
+}
+function tracePath(c, from, to) {
+  c.beginPath(); c.moveTo(TP[from * 2], TP[from * 2 + 1]);
+  for (let i = from + 1; i <= to; i++) c.lineTo(TP[i * 2], TP[i * 2 + 1]);
+}
+
+function drawPack(c, cx, cy, ro) {
+  const ri = R_HUB;
+  const full = (ro - ri) / (R_MAX - ri);
+  const bright = 0.5 + 0.45 * full;
+  const grad = c.createRadialGradient(cx, cy, 0, cx, cy, ro);
+  const p0 = ri / ro;
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(Math.max(0, Math.min(1, p0 - 0.02)), 'rgba(0,0,0,0)');
+  grad.addColorStop(Math.max(0, Math.min(1, p0 + 0.05)), col(RGB.soft, bright * 0.30));
+  grad.addColorStop(0.93, col(RGB.soft, bright));
+  grad.addColorStop(1, col(RGB.soft, 0));
+  c.fillStyle = grad; circle(c, cx, cy, ro); c.fill();
+  c.lineWidth = lw(0.8);
+  const n = Math.floor((ro - ri) / 2);
+  for (let j = 0; j <= n; j++) {
+    const rr = ri + j * 2, tt = (rr - ri) / Math.max(1, ro - ri);
+    const a = bright * (0.30 + 0.45 * tt) * ((j % 2 === 0) ? 1 : 0.55);
+    c.strokeStyle = col(RGB.soft, Math.min(1, a));
+    circle(c, cx, cy, rr); c.stroke();
+  }
+  c.save();
+  c.beginPath(); c.arc(cx, cy, ro, 0, TAU); c.arc(cx, cy, ri, 0, TAU, true); c.clip();
+  const gx = cx - ro * 0.40, gy = cy - ro * 0.55;
+  const gl = c.createRadialGradient(gx, gy, 0, gx, gy, ro * 1.1);
+  gl.addColorStop(0, col(RGB.line, bright * 0.35)); gl.addColorStop(1, col(RGB.line, 0));
+  c.fillStyle = gl; c.fillRect(cx - ro, cy - ro, ro * 2, ro * 2);
+  c.restore();
+  c.strokeStyle = col(RGB.line, 0.85); c.lineWidth = lw(1.2);
+  circle(c, cx, cy, ri); c.stroke();
+}
+function reelRims(c, cx, cy) {
+  const r = R_REEL;
+  c.strokeStyle = col(RGB.line, 1); c.lineWidth = lw(1.3); circle(c, cx, cy, R_HUB); c.stroke();
+  c.lineWidth = lw(1.2); circle(c, cx, cy, r * 0.06); c.stroke();
+}
+function reelSpokes(c, cx, cy, ang, spokeCol, hubCol) {
+  const r = R_REEL;
+  c.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = ang + TAU * i / 6, s = Math.sin(a), co = -Math.cos(a);
+    c.moveTo(cx + s * r * 0.14, cy + co * r * 0.14); c.lineTo(cx + s * r * 0.28, cy + co * r * 0.28);
+  }
+  c.strokeStyle = spokeCol; c.lineWidth = lw(1.4); c.stroke();
+  c.beginPath();
+  for (let i = 0; i < 12; i++) {
+    const a = ang + TAU * i / 12, rr = (i % 2 === 0) ? r * 0.155 : r * 0.10;
+    const x = cx + Math.sin(a) * rr, y = cy - Math.cos(a) * rr;
+    i ? c.lineTo(x, y) : c.moveTo(x, y);
+  }
+  c.closePath(); c.strokeStyle = hubCol; c.lineWidth = lw(1.3); c.stroke();
+}
+function histAt(tq, out) {
+  let idx = (hHead - 1 + HN) % HN;
+  for (let n = 0; n < hCount - 1; n++) {
+    const prev = (idx - 1 + HN) % HN;
+    if (hT[prev] <= tq) {
+      const span = hT[idx] - hT[prev], f = span > 0 ? (tq - hT[prev]) / span : 0;
+      out[0] = hL[prev] + (hL[idx] - hL[prev]) * f; out[1] = hR[prev] + (hR[idx] - hR[prev]) * f;
+      return true;
+    }
+    idx = prev;
+  }
+  return false;
+}
+const tmp2 = [0, 0];
+
+function drawCassette() {
+  const c = cctx;
+  const d = P.drive / 100, e = P.echo / 100;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+  if (bumpY) { c.fillStyle = '#060809'; c.fillRect(0, 0, cas.width, cas.height); }
+  c.drawImage(shell, 0, Math.round(bumpY * B));
+  casT(c);
+  c.lineCap = 'round'; c.lineJoin = 'round';
+
+  const heat = d * (0.78 + 0.22 * meter);
+  if (heat > 0.002) {
+    c.globalCompositeOperation = 'lighter';
+    c.save();
+    rrect(c, 10, 8, 439, 292, 18); c.clip();
+    c.translate(230, 284); c.scale(2.1, 1);
+    const R = 34 + 26 * d;
+    const g = c.createRadialGradient(0, 0, 0, 0, 0, R);
+    g.addColorStop(0, col(RGB.teal, 0.30 * heat)); g.addColorStop(0.45, col(RGB.teal, 0.11 * heat)); g.addColorStop(1, col(RGB.teal, 0));
+    c.fillStyle = g; c.fillRect(-R, -R, 2 * R, 2 * R);
+    c.restore();
+    const g2 = c.createRadialGradient(230, 292, 0, 230, 292, 18);
+    g2.addColorStop(0, col(RGB.teal, 0.45 * heat)); g2.addColorStop(1, col(RGB.teal, 0));
+    c.fillStyle = g2; c.fillRect(212, 274, 36, 36);
+    c.globalCompositeOperation = 'source-over';
+  }
+
+  drawPack(c, C1.x, C1.y, rL);
+  drawPack(c, C2.x, C2.y, rR);
+
+  const w = P.warp / 100, f = P.flutter / 100;
+  buildTape(Math.pow(w, 1.2) * env, f * env);
+  tracePath(c, 0, tpN - 1);
+  c.strokeStyle = mix(RGB.soft, RGB.teal, modeT * 0.9, 0.6 + 0.25 * modeT);
+  c.lineWidth = lw(1.3); c.stroke();
+  c.setLineDash([1.6, 9]); c.lineDashOffset = -tapeL;
+  c.strokeStyle = mix(RGB.line, RGB.teal, modeT, 0.5);
+  c.lineWidth = lw(1.9); c.stroke();
+  c.setLineDash([]);
+  if (heat > 0.002) {
+    const lg = c.createLinearGradient(165, 0, 295, 0);
+    lg.addColorStop(0, col(RGB.teal, 0)); lg.addColorStop(0.5, col(RGB.teal, 0.95 * heat)); lg.addColorStop(1, col(RGB.teal, 0));
+    tracePath(c, tpBotA, tpBotB);
+    c.strokeStyle = lg; c.lineWidth = lw(1.8); c.stroke();
+  }
+
+  reelRims(c, C1.x, C1.y);
+  reelRims(c, C2.x, C2.y);
+  if (e > 0.002 && hCount > 2) {
+    const n = Math.round(2 + 7 * e), lag = 0.022 + 0.018 * e, persist = 0.5 + 0.4 * e;
+    const curL = aL + jit, curR = aR + jit * 0.8;
+    for (let k = n; k >= 1; k--) {
+      if (!histAt(t - k * lag, tmp2)) continue;
+      const a = 0.55 * e * Math.pow(persist, k - 1);
+      if (Math.abs(tmp2[0] - curL) > 0.004) { c.globalAlpha = a; reelSpokes(c, C1.x, C1.y, tmp2[0], col(RGB.soft, 1), col(RGB.soft, 1)); }
+      if (Math.abs(tmp2[1] - curR) > 0.004) { c.globalAlpha = a; reelSpokes(c, C2.x, C2.y, tmp2[1], col(RGB.soft, 1), col(RGB.soft, 1)); }
+    }
+    c.globalAlpha = 1;
+  }
+  reelSpokes(c, C1.x, C1.y, aL + jit, col(RGB.soft, 1), col(RGB.line, 1));
+  reelSpokes(c, C2.x, C2.y, aR + jit * 0.8, col(RGB.soft, 1), col(RGB.line, 1));
+
+  drawWindow(c);
+  if (heat > 0.002) {
+    c.beginPath(); c.moveTo(208, 300); c.lineTo(208, 286); c.lineTo(251, 286); c.lineTo(251, 300);
+    c.strokeStyle = col(RGB.teal, 0.8 * heat); c.lineWidth = lw(1.4); c.stroke();
+  }
+
+  const ga = 0.34 * Math.pow(d, 1.3);
+  if (ga > 0.003) {
+    c.save();
+    rrect(c, 2, 2, 455, 304, 22); c.clip();
+    if (t >= grainNext) {
+      grainIdx = (grainIdx + 1 + ((Math.random() * 4) | 0)) % GRAIN.length;
+      grainOx = (Math.random() * 256) | 0; grainOy = (Math.random() * 256) | 0;
+      grainNext = t + 0.04;
+    }
+    c.setTransform(1, 0, 0, 1, grainOx, grainOy);
+    c.globalAlpha = ga; c.fillStyle = GRAIN[grainIdx];
+    c.fillRect(B * CAS.x - grainOx, B * (CAS.y + bumpY) - grainOy, 459 * S * B, 308 * S * B);
+    c.restore();
+    c.globalAlpha = 1;
+  }
+
+}
+
+// Label strip: the loaded loop (AUDITION) or LIVE REC. Drawn in cell px so the type stays crisp at
+// the rack's smaller cassette scale.
+// A new sample clears the old name at once, the connector draws from the loaded row to the label in
+// LINE_MS, then the name types in front to back at CHAR_MS per character behind the teal block caret.
+// The BPM shows once the name is complete. Every frame is a pure function of (elapsed ms, name).
+const LINE_MS = 180, CHAR_MS = 13;
+const PICK = { src: '', name: '', bpm: '', t0: -1e9 };   // src = the sample's name, name = as shown; t0 in performance.now() ms
+let pickSeen = false;
+function pickElapsed() { return performance.now() - PICK.t0; }
+// Real file names run long: shorten in the middle (keeps the ".wav" end) to whatever fits the label
+// at LABEL_MIN_PX. The mock's names always fit. (9 px read soft at plugin size in Live, 09-30.)
+const measureCtx = document.createElement('canvas').getContext('2d');
+function fitMiddle(c, text, max) {
+  if (c.measureText(text).width <= max) return text;
+  let a = Math.ceil(text.length / 2), b = Math.floor(text.length / 2);
+  while (a > 1 && c.measureText(text.slice(0, a) + '…' + text.slice(text.length - b)).width > max) { if (a > b) a--; else b--; }
+  return text.slice(0, a) + '…' + text.slice(text.length - b);
+}
+const LABEL_MIN_PX = 11;
+function labelName(name) { const c = measureCtx; c.font = `400 ${LABEL_MIN_PX}px ${FONT}`; setSpacing(c, 0); return fitMiddle(c, name, LR.w - 61); }
+function startPick(name, bpm, instant) { PICK.src = name; PICK.name = labelName(name); PICK.bpm = bpm; PICK.t0 = instant ? -1e9 : performance.now(); }
+function labelState() {
+  const e = pickElapsed(), nm = PICK.name;
+  const line = clamp(e / LINE_MS, 0, 1);
+  const n = e < LINE_MS ? 0 : Math.min(nm.length, Math.floor((e - LINE_MS) / CHAR_MS) + 1);
+  const done = n >= nm.length;
+  return { e, line, n, done, caret: line >= 1 && !done, text: nm.slice(0, n) };
+}
+function fitFont(c, text, max, px, weight) {
+  let f = px; c.font = `${weight} ${f}px ${FONT}`;
+  while (f > LABEL_MIN_PX && c.measureText(text).width > max) { f -= 0.5; c.font = `${weight} ${f}px ${FONT}`; }
+}
+function drawWindow(c) {
+  const a = 1 - modeT, b = modeT;
+  c.setTransform(B, 0, 0, B, 0, B * bumpY);
+  const x0 = LR.x, y0 = LR.y, w = LR.w, h = LR.h, cy = y0 + h / 2 + 0.5;
+  c.textBaseline = 'middle'; c.textAlign = 'left'; setSpacing(c, 0);
+  c.save(); c.beginPath(); c.rect(x0 + 1.5, y0 + 1.5, w - 3, h - 3); c.clip();
+  if (a > 0.01) {
+    c.globalAlpha = a;
+    c.beginPath(); c.moveTo(x0 + 9, cy - 5); c.lineTo(x0 + 16.5, cy); c.lineTo(x0 + 9, cy + 5); c.closePath();
+    c.strokeStyle = col(RGB.line, 0.95); c.lineWidth = 1.2; c.stroke();
+    const sepX = x0 + w - 31;
+    c.fillStyle = col(RGB.soft, 0.5); c.fillRect(sepX, y0 + 5, 1, h - 10);
+    const L = labelState(), nm = PICK.name;
+    const nameX = x0 + 24, nameMax = sepX - nameX - 6;
+    if (nm) {
+      // font sized to the full name up front, so the text never re-flows while it grows
+      fitFont(c, nm, nameMax, 12, 400); c.textAlign = 'left';
+      c.globalAlpha = a; c.fillStyle = col(RGB.line, 1); c.fillText(L.text, nameX, cy);
+      if (L.caret) {
+        const cw = c.measureText('M').width, cx0 = nameX + c.measureText(L.text).width;
+        c.fillStyle = col(RGB.teal, 0.95); c.fillRect(cx0 + 0.5, cy - 6.5, Math.max(5, cw * 0.8), 13);
+      }
+      if (L.done) { c.font = `700 12px ${FONT}`; c.textAlign = 'center'; c.fillStyle = col(RGB.line, 1); c.fillText(String(PICK.bpm), sepX + 15.5, cy); }
+    }
+  }
+  if (b > 0.01) {
+    c.globalAlpha = b;
+    const dotA = 0.55 + 0.45 * kickEnv, dx = x0 + 14;
+    c.globalCompositeOperation = 'lighter';
+    const hg = c.createRadialGradient(dx, cy, 0, dx, cy, 10);
+    hg.addColorStop(0, col(RGB.teal, 0.35 * dotA)); hg.addColorStop(1, col(RGB.teal, 0));
+    c.fillStyle = hg; c.fillRect(dx - 10, cy - 10, 20, 20);
+    c.globalCompositeOperation = 'source-over';
+    circle(c, dx, cy, 3.2); c.fillStyle = col(RGB.teal, dotA); c.fill();
+    circle(c, dx, cy, 5.2); c.strokeStyle = col(RGB.teal, 0.55); c.lineWidth = 0.9; c.stroke();
+    c.font = `700 11px ${FONT}`; setSpacing(c, 1.4); c.fillStyle = col(RGB.line, 1); c.textAlign = 'left';
+    c.fillText('LIVE  REC', x0 + 26, cy); setSpacing(c, 0);
+    const lit = Math.round(meter * 8);
+    for (let i = 0; i < 8; i++) {
+      const x = x0 + w - 52 + i * 5.5;
+      if (i < lit) { c.fillStyle = col(RGB.teal, 0.55 + 0.05 * i); c.fillRect(x, cy - 6, 3.6, 12); }
+      else { c.strokeStyle = col(RGB.faint, 1); c.lineWidth = 0.7; c.strokeRect(x + 0.35, cy - 5.65, 2.9, 11.3); }
+    }
+  }
+  c.restore(); c.globalAlpha = 1;
+  casT(c);
+}
+
+// Playhead follower: ln_state reports the audition read head (0..1 of the whole file) at 30 Hz;
+// frames in between extrapolate at the measured rate so the reels and the scope line glide.
+const PH = { v: 0, t: 0, rate: 0 };
+let lastInT = -10, inLvl = 0, outLvl = 0;    // latest reported peak levels (linear), last time input was heard
+let inPrev = 0, lvlT = 0;                    // the input level before that, and when the latest arrived
+function step(dt) {
+  const live = liveNow(), playing = !live && !!(lastState && lastState.playing);
+  // AUDITION: the reels run while the audition plays. LIVE: they run while the track feeds input.
+  const moving = live ? (t - lastInT) < 0.5 : playing;
+  const target = moving ? 1 : 0;
+  const tau = moving ? 0.11 : 0.22;
+  const k = 1 - Math.exp(-dt / tau);
+  env1 += (target - env1) * k;
+  env  += (env1 - env) * k;
+  if (!moving && env < 1e-4) { env = env1 = 0; }
+  const w = P.warp / 100, f = P.flutter / 100;
+  const wowRate = 0.3 + 0.7 * w;
+  wowPh  += TAU * wowRate * dt; wowPh2 += TAU * wowRate * 0.61 * dt;
+  wowSig = 0.75 * Math.sin(wowPh) + 0.25 * Math.sin(wowPh2 + 1.3);
+  const wowAmt = 0.35 * Math.pow(w, 1.4);
+  flPh1 += TAU * 6.3 * dt; flPh2 += TAU * 9.7 * dt; flPh3 += TAU * 13.1 * dt;
+  flNoise += ((Math.random() * 2 - 1) - flNoise) * 0.35;
+  flSig = 0.4 * Math.sin(flPh1) + 0.25 * Math.sin(flPh2) + 0.15 * Math.sin(flPh3) + 0.35 * flNoise;
+  const flAmt = 0.12 * Math.pow(f, 1.2);
+  trPh += dt * 48 + (Math.random() - 0.5) * 0.6 * f;
+  const speed = env * Math.max(0, 1 + wowAmt * wowSig + flAmt * flSig);
+
+  let cycle;
+  if (live) {                                  // no audition in LIVE: the reels free-run at the session tempo
+    cycle = 64 * 60 / P.tempo;
+    p += speed * dt / cycle;
+    if (p >= 1) { p -= 1; rwOn = true; rwT0 = t; rwFrom = pd; }
+  } else {
+    cycle = PEAKS.seconds > 0 ? PEAKS.seconds : 64 * 60 / 90;
+    const ahead = playing ? PH.rate * Math.min(0.12, (performance.now() - PH.t) / 1000) : 0;
+    const tgt = clamp(PH.v + ahead, 0, 1);
+    if (Math.abs(tgt - p) > 0.05) { rwOn = true; rwT0 = t; rwFrom = pd; p = tgt; }   // wrap or seek: the reels rewind
+    else p += (tgt - p) * Math.min(1, dt * 12);
+  }
+  let npd = p;
+  if (rwOn) {
+    const u = (t - rwT0) / 0.6;
+    if (u >= 1) rwOn = false;
+    else { const ez = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; npd = rwFrom + (p - rwFrom) * ez; }
+  }
+  const dPd = npd - pd; pd = npd;
+  const q = 0.06 + 0.88 * pd;
+  rL = Math.sqrt(RH2 + (1 - q) * AREA);
+  rR = Math.sqrt(RH2 + q * AREA);
+  const dL = dPd * LIN_90 * cycle;             // tape speed stays LIN_90 px/s whatever the loop length
+  let daL = -dL / rL, daR = -dL / rR, dTape = dL;
+  if (rwOn) {
+    daL = Math.max(-0.3, Math.min(0.3, daL)); daR = Math.max(-0.3, Math.min(0.3, daR));
+    dTape = Math.max(-3, Math.min(3, dTape));
+  }
+  aL += daL; aR += daR; tapeL += dTape;
+  jit = f * 0.04 * flSig * env;
+
+  const raw = Math.min(1, live ? inLvl : outLvl);
+  meter = raw > meter ? raw : meter + (raw - meter) * (1 - Math.exp(-dt / 0.18));
+  kickEnv = raw;
+
+  modeT += ((live ? 1 : 0) - modeT) * (1 - Math.exp(-dt / 0.12));
+
+  hT[hHead] = t; hL[hHead] = aL + jit; hR[hHead] = aR + jit * 0.8;
+  hHead = (hHead + 1) % HN; if (hCount < HN) hCount++;
+}
+
+// ================================================================ SCOPE
+const WA = { x: 22, y: 76, w: SCA_W - 44, h: SC.h - 124 };   // r2: 242 tall (was 206)      // wave area inside the scope (scope coords)
+let wavePeaks = new Float32Array(WA.w);       // the whole file: HATCH thumbnail, checks
+let viewPeaks = new Float32Array(WA.w);       // the scope's current view
+let spinWipeT = -10;
+
+// Zoom: the scope shows a window [a, b] of the file (0..1). Page-local; a new loop resets it.
+// Pinch or cmd-scroll zooms about the pointer, a sideways swipe (or shift-scroll) pans,
+// double-click shows the whole file again.
+const VIEW = { a: 0, b: 1 }, MAX_ZOOM = 32;
+const vspan = () => VIEW.b - VIEW.a;
+const n2x = n => WA.x + WA.w * (n - VIEW.a) / vspan();
+const x2n = x => VIEW.a + (x - WA.x) / WA.w * vspan();
+const zoomed = () => vspan() < 0.999;
+function setView(a, b) {
+  const span = clamp(b - a, 1 / MAX_ZOOM, 1);
+  a = clamp(a, 0, 1 - span);
+  if (Math.abs(a - VIEW.a) < 1e-9 && Math.abs(a + span - VIEW.b) < 1e-9) return;
+  VIEW.a = a; VIEW.b = span >= 0.999 ? 1 : a + span; if (span >= 0.999) VIEW.a = 0;
+  computeViewPeaks();
+}
+function zoomAt(n, f) {
+  const span = clamp(vspan() / f, 1 / MAX_ZOOM, 1), u = (n - VIEW.a) / vspan();
+  setView(n - u * span, n - u * span + span);
+}
+function panBy(dn) { setView(VIEW.a + dn, VIEW.b + dn); }
+
+function fmtTime(s) { const ds = Math.round(s * 10), m = Math.floor(ds / 600), ss = Math.floor(ds / 10) % 60; return `${m}:${String(ss).padStart(2, '0')}.${ds % 10}`; }
+
+// Columns of max |sample| over [a, b) of the file (0..1) from a peak array; a column narrower
+// than one source column interpolates between its neighbours.
+function sampleCols(src, a, b, out) {
+  const n = src.length, cols = out.length;
+  for (let i = 0; i < cols; i++) {
+    if (!n) { out[i] = 0; continue; }
+    const fa = (a + (b - a) * i / cols) * n, fb = (a + (b - a) * (i + 1) / cols) * n;
+    if (fb - fa < 1) {
+      const x = (fa + fb) / 2 - 0.5, k = Math.floor(x), u = x - k;
+      const v0 = src[clamp(k, 0, n - 1)], v1 = src[clamp(k + 1, 0, n - 1)];
+      out[i] = clamp(fa < 0 || fb > n ? 0 : v0 + (v1 - v0) * u, 0, 1);
+      continue;
+    }
+    let m = 0;
+    for (let k = Math.max(0, Math.floor(fa)), e = Math.min(n, Math.ceil(fb)); k < e; k++) if (src[k] > m) m = src[k];
+    out[i] = clamp(m, 0, 1);
+  }
+}
+const peakSrc = () => PEAKS.hi.length ? PEAKS.hi : PEAKS.raw;
+// The whole-file columns come from ln_peaks' 1600; the view from its hi-res bytes.
+function computePeaks() { sampleCols(PEAKS.raw, 0, 1, wavePeaks); computeViewPeaks(); }
+function computeViewPeaks() { sampleCols(peakSrc(), VIEW.a, VIEW.b, viewPeaks); }
+// One bar as a fraction of the file, at the loop's tempo (0 = no tempo).
+function barW() {
+  const bpm = lastState ? lastState.nativeBpm : 0, sec = PEAKS.seconds;
+  return bpm > 0 && sec > 0 ? 240 / (bpm * sec) : 0;
+}
+// The trimmed loop's length in bars at the loop's tempo, which a trim never moves: a fraction is fine.
+function barsOf() {
+  const w = barW();
+  return w > 0 ? Math.max(0, pget('end') - pget('start')) / w : 0;
+}
+// Live auto-warps a dropped loop as 1, 2, 4 or 8 bars (measured in Live 12, 10-13; the filename
+// tempo and an ACID chunk are ignored), so a print of any other length plays at the wrong speed.
+const WARP_BARS = [1, 2, 4, 8, 16, 32];
+function syncOddNote() {
+  const b = barsOf();
+  $('odd-note').hidden = !(lastState && lastState.hasSample) || b <= 0 || WARP_BARS.some(n => Math.abs(b - n) < 0.02);
+}
+// SNAP: the trim handles land on the nearest drum hit (ln_peaks.hits), or the file's ends.
+// Alt or shift drags free. No hits found: free.
+const SNAP = { on: true };
+let trimDrag = null;                         // a trim handle in hand (see the scope's pointer handlers)
+let footText = '';                           // the scope footer's loop facts as drawn (checks)
+function snapN(v) {
+  const h = PEAKS.hits;
+  if (!SNAP.on || !h.length) return v;
+  let lo = 0, hi = h.length;                 // first hit >= v
+  while (lo < hi) { const m = (lo + hi) >> 1; if (h[m] < v) lo = m + 1; else hi = m; }
+  let best = v < 0.5 ? 0 : 1;
+  for (const c of [h[lo - 1], h[lo], 0, 1]) if (c !== undefined && Math.abs(c - v) < Math.abs(best - v)) best = c;
+  return best;
+}
+
+function scopeChrome(c, left, right, rightHot, sw) {
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = '#060809'; c.fillRect(0, 0, scA.width, scA.height);
+  c.setTransform(B, 0, 0, B, 0, 0);
+  rrect(c, 0, 0, sw, SC.h, 14); c.fillStyle = '#030506'; c.fill();
+  rrect(c, 1.5, 1.5, sw - 3, SC.h - 3, 13); c.strokeStyle = col(RGB.line, 0.7); c.lineWidth = 1.6; c.stroke();
+  c.strokeStyle = col(RGB.soft, 0.5); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(16, 44.5); c.lineTo(sw - 16, 44.5); c.stroke();
+  c.font = `400 14px ${FONT}`; setSpacing(c, 0.6); c.textBaseline = 'middle';
+  c.textAlign = 'left'; c.fillStyle = col(RGB.line, 1); c.fillText(left, 22, 24);
+  c.textAlign = 'right'; c.fillStyle = rightHot ? col(RGB.teal, 1) : col(RGB.soft, 1); c.fillText(right, sw - 22, 24);
+  setSpacing(c, 0);
+}
+
+function buildScopeA() {
+  const c = scAx, st = lastState || {};
+  const folder = st.folder || files.folder || '', n = st.count || 0;
+  const left = folder ? `${folder}  ·  ${n} ${n === 1 ? 'loop' : 'loops'}` : 'NO FOLDER';
+  c.setTransform(B, 0, 0, B, 0, 0); c.font = `400 14px ${FONT}`; setSpacing(c, 0.6);   // scopeChrome's header type
+  // A restored set's loop that can't be found shows by name, marked, until a load replaces it.
+  const room = SCA_W - 44 - c.measureText(left).width - 40, MISS = '  ·  MISSING';
+  const right = st.sample ? fitMiddle(c, st.sample, room)
+              : st.sampleMissing ? fitMiddle(c, st.sampleMissing, room - c.measureText(MISS).width) + MISS : '';
+  scopeChrome(c, left, right, false, SCA_W);
+  // bar grid + numbers: the FILE's bars at the loop's tempo, counted from where bar 1 starts
+  // (state.barOrigin: the file's first sample unless "Bar 1 starts here" moved it). Lines run
+  // both ways from there; numbers from bar 1 on. The trim handles never move them (a clip's
+  // timeline). Each number sits on the line where its bar starts. `bars` = the trimmed
+  // loop's length, for the footer.
+  const bw = barW(), bars = barsOf(), g0 = clamp(+st.barOrigin || 0, 0, 1), g1 = 1;
+  c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.font = `400 11px ${FONT}`;
+  const inX = x => x >= WA.x - 0.5 && x <= WA.x + WA.w + 0.5;
+  if (bw > 0 && st.hasSample) {
+    const pxBar = WA.w * bw / vspan();              // on-screen width of one bar at this zoom
+    const every = Math.max(1, Math.ceil(vspan() / bw / 16));
+    const b0 = Math.max(Math.ceil(-g0 / bw - 1e-4), Math.floor((VIEW.a - g0) / bw)), b1 = Math.min(Math.floor((1 - g0) / bw + 1e-4), Math.ceil((VIEW.b - g0) / bw));
+    const m4 = b => ((b % 4) + 4) % 4 === 0;
+    // beats under 32 visible bars; sixteenths once a bar is wide enough to read them
+    const subs = pxBar > 260 ? 16 : pxBar >= 28 ? 4 : 0;
+    for (let b = b0; b <= b1; b++) {
+      const x = Math.round(n2x(g0 + b * bw)) + 0.5;
+      if (inX(x)) {
+        c.strokeStyle = col(RGB.faint, m4(b) ? 1 : 0.7); c.lineWidth = 1;
+        c.beginPath(); c.moveTo(x, WA.y - 6); c.lineTo(x, WA.y + WA.h); c.stroke();
+      }
+      if (g0 + b * bw < 1 - 1e-6) {
+        if (b >= 0 && b % every === 0 && x > WA.x - 1 && x < WA.x + WA.w - 16) {
+          c.fillStyle = m4(b) ? col(RGB.line, 0.9) : col(RGB.soft, 0.8);
+          c.fillText(String(b + 1), x + 4, WA.y - 12);
+        }
+        for (let q = 1; q < subs; q++) {
+          const n = g0 + (b + q / subs) * bw;
+          if (n > g1 + 1e-9) break;
+          const bx = Math.round(n2x(n)) + 0.5;
+          if (!inX(bx)) continue;
+          const beat = q % (subs / 4) === 0;
+          c.strokeStyle = col(RGB.faint, beat ? (zoomed() ? 0.8 : 0.45) : 0.4);
+          c.beginPath(); c.moveTo(bx, beat && zoomed() ? WA.y : WA.y + WA.h - 5); c.lineTo(bx, WA.y + WA.h); c.stroke();
+        }
+      }
+    }
+  }
+  if (zoomed()) {                                     // overview: where the view sits in the file
+    const oy = 50, ow = WA.w;
+    c.fillStyle = col(RGB.faint, 0.9); c.fillRect(WA.x, oy, ow, 3);
+    const s0 = clamp(pget('start'), 0, 1), s1 = clamp(pget('end'), 0, 1);
+    c.fillStyle = col(RGB.teal, 0.35); c.fillRect(WA.x + ow * s0, oy, Math.max(1, ow * (s1 - s0)), 3);
+    c.fillStyle = col(RGB.line, 0.95); c.fillRect(WA.x + ow * VIEW.a, oy - 1, Math.max(3, ow * vspan()), 5);
+  }
+  const cy = WA.y + WA.h / 2;
+  c.strokeStyle = col(RGB.faint, 1); c.beginPath(); c.moveTo(WA.x, cy + 0.5); c.lineTo(WA.x + WA.w, cy + 0.5); c.stroke();
+  if (!st.hasSample || !PEAKS.n) return;
+  // waveform: mirrored peak envelope, teal
+  c.beginPath();
+  const hh = WA.h / 2 - 4;
+  c.moveTo(WA.x, cy);
+  for (let i = 0; i < WA.w; i++) c.lineTo(WA.x + i + 0.5, cy - Math.max(0.6, viewPeaks[i] * hh));
+  for (let i = WA.w - 1; i >= 0; i--) c.lineTo(WA.x + i + 0.5, cy + Math.max(0.6, viewPeaks[i] * hh));
+  c.closePath();
+  c.fillStyle = col(RGB.teal, 0.9); c.fill();
+  // outside the trim region: shaded back
+  const s0 = clamp(pget('start'), 0, 1), s1 = clamp(pget('end'), 0, 1);
+  const xs = n2x(s0), xe = n2x(s1), L = WA.x, R = WA.x + WA.w;
+  c.fillStyle = 'rgba(3,5,6,0.62)';
+  if (xs > L) c.fillRect(L, WA.y, Math.min(xs, R) - L, WA.h);
+  if (xe < R) c.fillRect(Math.max(xe, L), WA.y, R - Math.max(xe, L), WA.h);
+  // the drum hits SNAP lands on: faint ticks along the top, brighter inside the loop
+  if (SNAP.on && PEAKS.hits.length) {
+    c.lineWidth = 1;
+    for (const pass of [0, 1]) {
+      c.strokeStyle = pass ? col(RGB.teal, 0.75) : col(RGB.soft, 0.55);
+      c.beginPath();
+      for (const h of PEAKS.hits) {
+        if (h < VIEW.a || h > VIEW.b || (h >= s0 - 1e-9 && h <= s1 + 1e-9) !== !!pass) continue;
+        const hx = Math.round(n2x(h)) + 0.5;
+        c.moveTo(hx, WA.y); c.lineTo(hx, WA.y + 7);
+      }
+      c.stroke();
+    }
+  }
+  // trim handles: white pennants at loop start / end; off-view, an edge arrow points to one
+  for (const hx of [xs, xe]) {
+    c.fillStyle = col(RGB.line, 1);
+    if (hx < L - 1 || hx > R + 1) {
+      const ex = hx < L ? L + 2 : R - 2, d = hx < L ? -1 : 1, my = cy;
+      c.beginPath(); c.moveTo(ex + d * 7, my); c.lineTo(ex - d * 2, my - 8); c.lineTo(ex - d * 2, my + 8); c.closePath(); c.fill();
+      continue;
+    }
+    c.fillRect(hx - 1.2, WA.y, 2.4, WA.h);
+    c.beginPath(); c.moveTo(hx - 9, WA.y); c.lineTo(hx + 9, WA.y); c.lineTo(hx, WA.y + 13); c.closePath(); c.fill();
+    c.fillRect(hx - 7, WA.y + WA.h - 3, 14, 3);
+  }
+  // footer timecodes: the trim region's start and end
+  const len = PEAKS.seconds;
+  c.font = `400 12px ${FONT}`; setSpacing(c, 0.6); c.fillStyle = col(RGB.soft, 1); c.textBaseline = 'middle';
+  const FY = SC.h - 22;
+  c.textAlign = 'left';  c.fillText(fmtTime(s0 * len), WA.x, FY);
+  c.textAlign = 'right'; c.fillText(fmtTime(s1 * len), WA.x + WA.w, FY);
+  // loop facts: the trimmed loop's length in bars, then the tempo and where it came from (fainter).
+  // The tempo is a button (#bpm-t, a pill laid over its text): what the FILE's tempo is. Click
+  // for half-time, double-time, the handles or automatic; double-click to type one. A trim never moves it.
+  const bpmT = $('bpm-t');
+  footText = '';
+  {
+    const has = bars > 0, whole = has && Math.abs(bars - Math.round(bars)) < 0.01 && Math.round(bars) > 0;
+    const lbS = whole ? String(Math.round(bars)) : bars.toFixed(2);
+    const segs = has
+      ? [[`${lbS} ${lbS === '1' ? 'BAR' : 'BARS'}`, 1], ['  ·  ', 0], [`${fmtNum(st.nativeBpm)} BPM`, 1],
+         [st.bpmSource === 'name' ? ' from filename' : st.bpmSource === 'user' ? ' set' : ' guessed', 0]]
+      : [['NO TEMPO', 0], ['  ·  ', 0], ['SET BPM', 1], ['', 0]];
+    if (zoomed()) segs.push(['  ·  ', 0], [`ZOOM ${fmtNum(1 / vspan())}×`, 1]);
+    const segW = segs.map(([tx]) => c.measureText(tx).width), totW = segW.reduce((a, b) => a + b, 0);
+    footText = segs.map(s => s[0]).join('');
+    let fx = SCA_W / 2 - totW / 2;
+    c.textAlign = 'left';
+    segs.forEach(([tx, strong], i) => {
+      c.fillStyle = col(i === 2 ? RGB.line : RGB.soft, strong ? 1 : 0.55); c.fillText(tx, fx, FY);
+      if (i === 2) { bpmT.style.left = (680 + fx - 10) + 'px'; bpmT.style.width = (segW[2] + segW[3] + 20) + 'px'; }
+      fx += segW[i];
+    });
+  }
+  bpmT.style.display = '';
+  setSpacing(c, 0);
+}
+// Rebuild the cached audition scope (and the HATCH thumbnail) whenever anything it draws changes.
+let scopeSig = '';
+function checkScope(force) {
+  const st = lastState || {};
+  const sig = [st.folder, st.count, st.sample, st.sampleMissing, st.hasSample, st.nativeBpm, st.bpmSource, st.barOrigin, files.folder,
+               PEAKS.path, PEAKS.n, PEAKS.seconds, PEAKS.hits.length, pget('start').toFixed(6), pget('end').toFixed(6), VIEW.a, VIEW.b, SNAP.on, !!trimDrag].join('|');
+  if (!force && sig === scopeSig) return;
+  scopeSig = sig;
+  buildScopeA(); makeThumb(); redrawHatch(); syncOddNote();
+}
+
+function buildScopeF() {
+  scopeChrome(scFx, 'TRACK INPUT', '', false, SC.w);
+}
+
+// FX input: a scrolling ring of the track input's peak level (ln_state inL / inR) at session tempo.
+const WF = { x: 22, y: 66, w: SC.w - 44, h: SC.h - 88 };   // FX wave area, full width
+const FXN = WF.w; const fxRing = new Float32Array(FXN); let fxHead = 0, fxAcc = 0, fxBeat = 0;
+const FX_PX_PER_BEAT = WF.w / 12;                  // two bars visible
+function stepFx(dt) {
+  if (!liveNow() && modeT < 0.01) return;
+  fxAcc += dt * P.tempo / 60 * FX_PX_PER_BEAT;
+  while (fxAcc >= 1) {
+    fxAcc -= 1;
+    fxBeat = (fxBeat + 1 / FX_PX_PER_BEAT) % 64;
+    // levels arrive at 30 Hz, columns at ~115 px/s: a rise lands at once (keeps the attacks sharp),
+    // a fall eases from the previous report to the latest
+    const u = clamp((performance.now() - lvlT) * 30 / 1000, 0, 1);
+    fxRing[fxHead] = Math.min(1, inLvl >= inPrev ? inLvl : inPrev + (inLvl - inPrev) * u); fxHead = (fxHead + 1) % FXN;
+  }
+}
+
+function drawScope() {
+  const c = sctx2;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.globalAlpha = 1;
+  const a = 1 - modeT, b = modeT;
+  c.fillStyle = '#060809'; c.fillRect(0, 0, scope.width, scope.height);
+  if (a > 0.01) {
+    c.globalAlpha = a;
+    const wipe = clamp((t - spinWipeT) / 0.28, 0, 1);
+    if (wipe >= 1) c.drawImage(scA, 0, 0);
+    else {
+      c.drawImage(scA, 0, 0);          // chrome + old-free new wave, revealed left to right
+      c.fillStyle = '#030506';
+      const x0 = (WA.x + WA.w * wipe) * B;
+      c.fillRect(x0, (WA.y - 2) * B, (WA.x + WA.w + 2) * B - x0, (WA.h + 4) * B);
+    }
+    c.setTransform(B, 0, 0, B, 0, 0);
+    const px = n2x(p);
+    if (lastState && lastState.hasSample && px >= WA.x - 1 && px <= WA.x + WA.w + 1) {   // no loaded loop, no playhead
+      c.fillStyle = 'rgb(90,255,245)';
+      c.fillRect(px - 1, WA.y, 2, WA.h);
+      c.beginPath(); c.moveTo(px - 5, WA.y + WA.h + 7); c.lineTo(px + 5, WA.y + WA.h + 7); c.lineTo(px, WA.y + WA.h + 1); c.closePath(); c.fill();
+    }
+    if (S_.hatch === 'rendering' && t - hatchT0 < RENDER_S) {       // matching render sweep on the scope
+      const hx = WA.x + WA.w * (t - hatchT0) / RENDER_S;
+      c.fillStyle = col(RGB.teal, 0.10); c.fillRect(WA.x, WA.y, hx - WA.x, WA.h);
+      const g = c.createLinearGradient(hx - 60, 0, hx, 0);
+      g.addColorStop(0, col(RGB.teal, 0)); g.addColorStop(1, col(RGB.teal, 0.25));
+      c.fillStyle = g; c.fillRect(hx - 60, WA.y, 60, WA.h);
+      c.fillStyle = 'rgb(150,255,250)'; c.fillRect(hx - 1, WA.y - 6, 2, WA.h + 12);
+    }
+    if (trimDrag) drawLoupe(c);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  if (b > 0.01) {
+    c.globalAlpha = b;
+    c.drawImage(scF, 0, 0);
+    c.setTransform(B, 0, 0, B, 0, 0);
+    const cy = WF.y + WF.h / 2, hh = WF.h / 2 - 4;
+    // scrolling beat grid (bar lines brighter)
+    const off = (fxBeat * FX_PX_PER_BEAT);
+    for (let k = -1; k <= 8; k++) {
+      const beatAbs = Math.floor(fxBeat) - k;
+      const x = WF.x + WF.w - (off - beatAbs * FX_PX_PER_BEAT);
+      if (x < WF.x || x > WF.x + WF.w) continue;
+      const isBar = ((beatAbs % 4) + 4) % 4 === 0;
+      c.fillStyle = col(RGB.faint, isBar ? 1 : 0.5);
+      c.fillRect(Math.round(x), WF.y - (isBar ? 6 : 0), 1, WF.h + (isBar ? 6 : 0));
+    }
+    c.fillStyle = col(RGB.faint, 1); c.fillRect(WF.x, Math.round(cy), WF.w, 1);
+    c.beginPath();
+    c.moveTo(WF.x, cy);
+    for (let i = 0; i < FXN; i++) { const v = fxRing[(fxHead + i) % FXN]; c.lineTo(WF.x + i + 0.5, cy - Math.max(0.6, v * hh)); }
+    for (let i = FXN - 1; i >= 0; i--) { const v = fxRing[(fxHead + i) % FXN]; c.lineTo(WF.x + i + 0.5, cy + Math.max(0.6, v * hh)); }
+    c.closePath(); c.fillStyle = col(RGB.teal, 0.9); c.fill();
+    // live edge
+    c.fillStyle = col(RGB.line, 0.9); c.fillRect(WF.x + WF.w - 1, WF.y, 2, WF.h);
+    // LIVE status in the header row
+    const dotA = 0.55 + 0.45 * kickEnv;
+    c.font = `700 13px ${FONT}`; setSpacing(c, 2); c.textAlign = 'right'; c.textBaseline = 'middle';
+    c.fillStyle = col(RGB.teal, 1); c.fillText('LIVE', SC.w - 22, 24);
+    const lwid = c.measureText('LIVE').width;
+    c.globalAlpha = b * dotA; circle(c, SC.w - 22 - lwid - 14, 24, 5); c.fill(); c.globalAlpha = b;
+    setSpacing(c, 0);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  c.globalAlpha = 1;
+}
+
+// While a trim handle is held, a close-up strip of the audio around it: 12x the view's zoom,
+// so a handle grabbed in the whole-file view still lands on the transient.
+const LP = { w: 248, h: 78 }, lpPeaks = new Float32Array(LP.w - 4);
+function drawLoupe(c) {
+  if (vspan() < 1 / MAX_ZOOM * 1.5) return;           // already at full zoom: the scope is the close-up
+  const id = trimDrag.id, v = pget(id), span = vspan() / 12;
+  const hx = n2x(v), x = clamp(hx - LP.w / 2, WA.x + 4, WA.x + WA.w - LP.w - 4), y = WA.y + 8;
+  sampleCols(peakSrc(), v - span / 2, v + span / 2, lpPeaks);
+  rrect(c, x, y, LP.w, LP.h, 7); c.fillStyle = 'rgba(3,5,6,0.94)'; c.fill();
+  c.strokeStyle = col(RGB.teal, 0.9); c.lineWidth = 1.2; c.stroke();
+  const cy = y + LP.h / 2, hh = LP.h / 2 - 6, x0 = x + 2, mid = x0 + lpPeaks.length / 2;
+  c.save(); rrect(c, x, y, LP.w, LP.h, 7); c.clip();
+  c.beginPath(); c.moveTo(x0, cy);
+  for (let i = 0; i < lpPeaks.length; i++) c.lineTo(x0 + i + 0.5, cy - Math.max(0.5, lpPeaks[i] * hh));
+  for (let i = lpPeaks.length - 1; i >= 0; i--) c.lineTo(x0 + i + 0.5, cy + Math.max(0.5, lpPeaks[i] * hh));
+  c.closePath(); c.fillStyle = col(RGB.teal, 0.9); c.fill();
+  c.fillStyle = 'rgba(3,5,6,0.62)';                    // the side the trim cuts away
+  if (id === 'start') c.fillRect(x, y, mid - x, LP.h); else c.fillRect(mid, y, x + LP.w - mid, LP.h);
+  c.fillStyle = col(RGB.line, 1); c.fillRect(mid - 1, y, 2, LP.h);
+  c.restore();
+  c.font = `400 11px ${FONT}`; c.textBaseline = 'alphabetic'; c.fillStyle = col(RGB.soft, 1);
+  c.textAlign = 'left'; c.fillText(fmtTime(v * PEAKS.seconds), x + 6, y + LP.h - 6);
+  c.textAlign = 'right'; c.fillText(trimDrag.rel ? 'FINE' : '12×', x + LP.w - 6, y + LP.h - 6);
+}
+
+// ================================================================ FX meters
+let inLevel = 0, outLevel = 0, inPeak = 0, outPeak = 0;
+const dbOf = v => v <= 1e-4 ? -60 : clamp(20 * Math.log10(v), -60, 6);
+const dbStr = v => { const d = dbOf(v); return d <= -59.9 ? '-inf' : d.toFixed(1); };
+function updateLevels(dt) {
+  inLevel = inLvl; outLevel = Math.min(1.4, outLvl);
+  const fall = Math.exp(-dt / 0.9);
+  inPeak = Math.max(inLevel, inPeak * fall); outPeak = Math.max(outLevel, outPeak * fall);
+}
+function drawMeters() {
+  const c = mctx;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, meters.width, meters.height);
+  c.setTransform(B, 0, 0, B, 0, 0);
+  rrect(c, 0.65, 0.65, MT.w - 1.3, MT.h - 1.3, 12); c.fillStyle = '#0d1213'; c.fill();
+  c.strokeStyle = col(RGB.faint, 1); c.lineWidth = 1.3; c.stroke();
+  const rows = [['IN', inLevel, inPeak, 18], ['OUT', outLevel, outPeak, 46]];
+  const segN = 80, mx0 = 70, mw = MT.w - 70 - 120, segW = mw / segN;
+  c.textBaseline = 'middle';
+  for (const [lab, lv, pk, y] of rows) {
+    c.font = `700 12px ${FONT}`; setSpacing(c, 1.8); c.textAlign = 'left'; c.fillStyle = col(RGB.soft, 1);
+    c.fillText(lab, 16, y);
+    const db = dbOf(lv), frac = clamp((db + 48) / 54, 0, 1);
+    const pkFrac = clamp((dbOf(pk) + 48) / 54, 0, 1);
+    const lit = Math.round(frac * segN), pkSeg = Math.min(segN - 1, Math.round(pkFrac * segN));
+    for (let i = 0; i < segN; i++) {
+      const x = mx0 + i * segW;
+      const over = i >= segN - 8;
+      if (i < lit) { c.fillStyle = over ? col(RGB.line, 0.95) : col(RGB.teal, 0.55 + 0.4 * i / segN); c.fillRect(x, y - 6, segW - 2, 12); }
+      else if (i === pkSeg && pk > 0.01) { c.fillStyle = col(RGB.line, 0.8); c.fillRect(x, y - 6, segW - 2, 12); }
+      else { c.strokeStyle = col(RGB.faint, 1); c.lineWidth = 0.8; c.strokeRect(x + 0.4, y - 5.6, segW - 2.8, 11.2); }
+    }
+    c.font = `400 13px ${FONT}`; setSpacing(c, 0.5); c.textAlign = 'right'; c.fillStyle = col(RGB.line, 1);
+    c.fillText(`${dbStr(lv)} dB`, MT.w - 16, y);
+  }
+  setSpacing(c, 0);
+}
+
+// ================================================================ knobs (native TapeLookAndFeel::drawRotarySlider)
+const A0 = Math.PI * 1.2 - TAU, A1 = Math.PI * 2.8 - TAU;   // JUCE default sweep, in the drawReel angle convention
+const svgNS = 'http://www.w3.org/2000/svg';
+function knob(host, x, y, size, o) {
+  // o: {min, max, def, get(), set(v), begin(), end(), step, zero}; begin/end bracket a host gesture
+  const el = document.createElement('div'); el.className = 'knob';
+  if (x !== null) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+  const R = size / 2, cx = R, cy = R;
+  const on = (a, r) => [cx + Math.sin(a) * r, cy - Math.cos(a) * r];
+  let ticks = '';
+  for (let i = 0; i <= 21; i++) {
+    const a = A0 + (A1 - A0) * i / 21, [x1, y1] = on(a, R * 0.80), [x2, y2] = on(a, R * 0.93);
+    ticks += `M${x1.toFixed(2)} ${y1.toFixed(2)}L${x2.toFixed(2)} ${y2.toFixed(2)}`;
+  }
+  const cs = R * 0.085;
+  el.innerHTML = `<svg width="${size}" height="${size}">
+    <path d="${ticks}" stroke="rgba(151,163,166,0.55)" stroke-width="1"/>
+    <circle cx="${cx}" cy="${cy}" r="${R * 0.74}" fill="none" stroke="rgba(151,163,166,0.7)" stroke-width="1"/>
+    <circle class="k-ring" cx="${cx}" cy="${cy}" r="${R * 0.66}" fill="none" stroke="#eef3f5" stroke-width="${size > 70 ? 1.8 : 1.4}"/>
+    <circle cx="${cx}" cy="${cy}" r="${R * 0.55}" fill="none" stroke="#343f41" stroke-width="1"/>
+    <path class="k-glow" stroke-width="${R * 0.17}"/>
+    <path class="k-arc" stroke-width="${Math.max(1.6, R * 0.06)}"/>
+    <line class="k-ptr" stroke="#eef3f5" stroke-linecap="round" stroke-width="${Math.max(size > 70 ? 2.6 : 2, R * 0.075)}"/>
+    <path d="M${cx - cs} ${cy}H${cx + cs}M${cx} ${cy - cs}V${cy + cs}" stroke="#eef3f5" stroke-width="1.1"/>
+  </svg>`;
+  host.appendChild(el);
+  const glow = el.querySelector('.k-glow'), arc = el.querySelector('.k-arc'), ptr = el.querySelector('.k-ptr');
+  const zero = o.zero !== undefined ? o.zero : o.min;
+  function render() {
+    const v = clamp(o.get(), o.min, o.max), pos = (v - o.min) / (o.max - o.min), zp = (zero - o.min) / (o.max - o.min);
+    const lit = !o.lit || o.lit();            // secondaries stay unlit while their column's primary is 0
+    arc.style.stroke = lit ? '' : '#97a3a6'; glow.style.stroke = lit ? '' : '#97a3a6';
+    if (o.label) {        // name label glows toward teal with distance from neutral
+      const els = [].concat(o.label);
+      const lv = v >= zero ? (o.max > zero ? (v - zero) / (o.max - zero) : 0) : (zero > o.min ? (zero - v) / (zero - o.min) : 0);
+      const tt = lit ? Math.pow(clamp(lv, 0, 1), 0.8) : 0;
+      for (const le of els) {
+        le.classList.add('glowlab');
+        le.style.color = mix(RGB.soft, RGB.teal, tt, 1);
+        le.style.textShadow = tt > 0.01 ? `0 0 ${(3 + 9 * tt).toFixed(1)}px ${col(RGB.teal, (0.75 * tt).toFixed(3))}` : 'none';
+      }
+    }
+    const aC = A0 + pos * (A1 - A0), aZ = A0 + zp * (A1 - A0);
+    if (Math.abs(aC - aZ) > 0.012) {
+      const lo = Math.min(aC, aZ), hi = Math.max(aC, aZ), r = R * 0.83;
+      const [x1, y1] = on(lo, r), [x2, y2] = on(hi, r);
+      const d = `M${x1.toFixed(2)} ${y1.toFixed(2)}A${r} ${r} 0 ${hi - lo > Math.PI ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+      glow.setAttribute('d', d); arc.setAttribute('d', d);
+    } else { glow.setAttribute('d', ''); arc.setAttribute('d', ''); }
+    const [bx, by] = on(aC, R * 0.20), [tx, ty] = on(aC, R * 0.64);
+    ptr.setAttribute('x1', bx); ptr.setAttribute('y1', by); ptr.setAttribute('x2', tx); ptr.setAttribute('y2', ty);
+  }
+  const gesture = fn => { o.begin && o.begin(); fn(); o.end && o.end(); render(); };
+  let dragY = 0, dragV = 0, dragging = false;
+  el.addEventListener('pointerdown', e => {
+    if (e.altKey) { e.preventDefault(); gesture(() => o.set(o.def)); return; }   // option-click: default, as double-click
+    el.setPointerCapture(e.pointerId); dragY = e.clientY; dragV = o.get(); e.preventDefault();
+    if (!dragging) { dragging = true; o.begin && o.begin(); }
+  });
+  el.addEventListener('pointermove', e => {
+    if (!el.hasPointerCapture(e.pointerId)) return;
+    const range = o.max - o.min, sens = e.shiftKey ? 900 : 220;
+    let v = dragV + (dragY - e.clientY) / (sens * fit) * range;
+    v = clamp(Math.round(v / (o.step || 1)) * (o.step || 1), o.min, o.max);
+    if (v !== o.get()) { o.set(v); render(); }
+  });
+  const up = () => { if (dragging) { dragging = false; o.end && o.end(); } };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
+  el.addEventListener('dblclick', () => gesture(() => o.set(o.def)));
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    gesture(() => o.set(clamp(o.get() - Math.sign(e.deltaY) * (o.step || 1) * ((o.max - o.min) > 50 ? 2 : 1), o.min, o.max)));
+  }, { passive: false });
+  render();
+  return { el, render };
+}
+// The relay side of a knob: reads, writes and gestures go to parameter `id`.
+const relayKnob = (id, o) => ({ def: PARAM_DEFAULTS[id], ...o,
+  get: () => pget(id), set: v => pset(id, v), begin: () => pbegin(id), end: () => pend(id) });
+// A value readout you can click to type into, in the units it shows (`toParam` maps them back).
+// Enter or a click away sets it, Esc cancels. Delete or Backspace on the untouched value, or
+// Enter on an empty one, puts the control back to its default. One host undo step.
+function typeIn(el, id, toParam = n => n) {
+  el.classList.add('tv');
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    if (el.classList.contains('ed')) return;
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.inputMode = 'decimal'; inp.spellcheck = false; inp.autocomplete = 'off';
+    const cur = parseFloat(el.textContent); inp.value = isFinite(cur) ? String(cur) : '';
+    let fresh = true, open = true;
+    el.classList.add('ed'); el.textContent = ''; el.appendChild(inp); inp.focus(); inp.select();
+    const set = v => {
+      const [a, b, iv] = RANGES[id];
+      v = clamp(v, a, b); if (iv > 0) v = a + iv * Math.round((v - a) / iv);
+      pbegin(id); pset(id, v); pend(id);
+    };
+    const done = ok => {
+      if (!open) return; open = false;
+      const s = inp.value.trim(), n = parseFloat(s);
+      el.classList.remove('ed'); el.textContent = '';
+      if (ok && s === '') set(PARAM_DEFAULTS[id]);
+      else if (ok && !fresh && isFinite(n)) set(toParam(n));
+      renderAll();
+    };
+    inp.addEventListener('input', () => { fresh = false; });
+    inp.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') done(true);
+      else if (ev.key === 'Escape') done(false);
+      else if ((ev.key === 'Backspace' || ev.key === 'Delete') && fresh) { ev.preventDefault(); inp.value = ''; done(true); }
+    });
+    inp.addEventListener('blur', () => done(true));
+  });
+}
+
+// ================================================================ band control (native BandFilter)
+const hz = x => 20 * Math.pow(1000, x);
+const fmtHz = x => { const f = hz(x); return f < 1000 ? `${Math.round(f)} Hz` : `${(f / 1000).toFixed(f < 10000 ? 1 : 0)} kHz`; };
+function band(host, x, y, w, h, loId, hiId, litFn) {
+  const el = document.createElement('div'); el.className = 'band';
+  el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = w + 'px'; el.style.height = h + 'px';
+  let grid = '';
+  for (const f of [100, 1000, 10000]) { const gx = 1 + Math.log(f / 20) / Math.log(1000) * (w - 2); grid += `M${gx.toFixed(1)} ${h * 0.14}V${h * 0.9}`; }
+  el.innerHTML = `<svg width="${w}" height="${h}">
+    <rect x="1" y="1" width="${w - 2}" height="${h - 2}" rx="${h * 0.16}" fill="none" stroke="#343f41" stroke-width="1"/>
+    <path d="${grid}" stroke="rgba(52,63,65,0.8)" stroke-width="1" stroke-dasharray="2 3"/>
+    <path class="band-fill"/><path class="band-line" stroke-width="1.6"/>
+    <rect class="h-lo" width="1.8" rx="0.9"/><rect class="h-hi" width="1.8" rx="0.9"/>
+    <circle class="c-lo" r="3.4"/><circle class="c-hi" r="3.4"/>
+  </svg>`;
+  host.appendChild(el);
+  const fill = el.querySelector('.band-fill'), line = el.querySelector('.band-line');
+  const hlo = el.querySelector('.h-lo'), hhi = el.querySelector('.h-hi'), clo = el.querySelector('.c-lo'), chi = el.querySelector('.c-hi');
+  const bw = w - 2, x0 = 1, top = 1 + (h - 2) * 0.32, bot = 1 + (h - 2) * 0.88;
+  function render() {
+    const lo = K[loId], hi = K[hiId];
+    const loOff = lo <= 0.02, hiOff = hi >= 0.98, open = loOff && hiOff;
+    const xLo = x0 + lo * bw, xHi = x0 + hi * bw, knee = Math.max(1, bw * 0.06);
+    // at rest, draw the same plateau as an active band, shoulders at the far edges
+    const dLo = loOff ? x0 + bw * 0.04 : xLo, dHi = hiOff ? x0 + bw * 0.96 : xHi;
+    let d = '';
+    for (let i = 0; i <= 60; i++) {
+      const fx = x0 + bw * i / 60;
+      const hp = clamp(0.5 + 0.5 * Math.tanh((fx - dLo) / knee * 2.4), 0, 1);
+      const lp = clamp(0.5 - 0.5 * Math.tanh((fx - dHi) / knee * 2.4), 0, 1);
+      d += (i ? 'L' : 'M') + fx.toFixed(1) + ' ' + (bot - hp * lp * (bot - top)).toFixed(1);
+    }
+    line.setAttribute('d', d);
+    fill.setAttribute('d', d + `L${x0 + bw} ${bot}L${x0} ${bot}Z`);
+    fill.style.opacity = 0.2;
+    const lit = !litFn || litFn();
+    fill.style.fill = open || !lit ? '#97a3a6' : '';
+    line.style.stroke = open || !lit ? '#97a3a6' : '';
+    for (const [r, cI, hx, live] of [[hlo, clo, xLo, !loOff], [hhi, chi, xHi, !hiOff]]) {
+      const c = live && lit ? 'var(--acc)' : 'rgba(151,163,166,0.8)';
+      const gx = clamp(hx, 4, w - 4);
+      r.setAttribute('x', gx - 0.9); r.setAttribute('y', top - 6); r.setAttribute('height', bot - top + 6); r.style.fill = c;
+      cI.setAttribute('cx', gx); cI.setAttribute('cy', top - 6); cI.style.fill = c;
+    }
+  }
+  let active = null;                           // the handle's parameter id while a drag holds it
+  const posOf = e => { const r = el.getBoundingClientRect(); return clamp((e.clientX - r.left) / r.width, 0, 1); };
+  const reset = () => {                        // both handles open, as the band rests
+    for (const [id, v] of [[loId, 0], [hiId, 1]]) { pbegin(id); K[id] = v; pend(id); }
+    render();
+  };
+  el.addEventListener('pointerdown', e => {
+    if (e.altKey) { e.preventDefault(); reset(); return; }   // option-click: open, as double-click
+    el.setPointerCapture(e.pointerId);
+    const pp = posOf(e);
+    if (active) pend(active);
+    active = Math.abs(pp - K[loId]) <= Math.abs(pp - K[hiId]) ? loId : hiId;
+    pbegin(active);
+    move(e); e.preventDefault();
+  });
+  function move(e) {
+    if (!active) return;
+    const pp = posOf(e);
+    if (active === loId) K[loId] = Math.min(pp < 0.02 ? 0 : pp, K[hiId] - 0.04);
+    else K[hiId] = Math.max(pp > 0.98 ? 1 : pp, K[loId] + 0.04);
+    render();
+  }
+  el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) move(e); });
+  const up = () => { if (active) { pend(active); active = null; } };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('lostpointercapture', up);
+  el.addEventListener('dblclick', reset);
+  render();
+  return { el, render };
+}
+function bandText(lo, hi) {
+  const loOff = lo <= 0.02, hiOff = hi >= 0.98;
+  // r2: low value right-aligned into its slot, high value left-aligned, so "to" never moves
+  return `<b class="sl" style="--n:8">${loOff ? '20 Hz' : fmtHz(lo)}</b> to <b class="sl l" style="--n:8">${hiOff ? '20 kHz' : fmtHz(hi)}</b>`;
+}
+
+// ================================================================ rack
+const rack = $('rack');
+const renders = [];              // re-render hooks, run whenever a relay moves (drag, preset, host automation)
+const fmtPct = v => `${Math.round(v)}%`;
+// relay values are floats off the host's 0..1 (input 0 dB arrives as 8.9e-7): round before signing
+const r1 = v => { const r = Math.round(v * 10) / 10; return r === 0 ? 0 : r; };
+const fmtSigned = v => `${Math.round(v) > 0 ? '+' : ''}${Math.round(v)}%`;
+function slotN(fm, mn, mx) { let n = 0; for (let i = 0; i <= 200; i++) n = Math.max(n, fm(mn + (mx - mn) * i / 200).length); return n; }
+function syncP() { P.warp = pon('warpOn') ? K.warp : 0; P.flutter = pon('flutterOn') ? K.flutter : 0; P.drive = pon('driveOn') ? K.drive : 0; P.echo = pon('echoOn') ? K.echo : 0; }
+const COLS = [
+  { name: 'WARP',    main: 'warp',    sec: ['RATE', 'warpRate', 0, 100, fmtPct] },
+  { name: 'FLUTTER', main: 'flutter', sec: ['RATE', 'flutterRate', 0, 100, fmtPct] },
+  { name: 'DRIVE',   main: 'drive',   sec: ['TONE', 'driveTone', -100, 100, fmtSigned] },
+  { name: 'ECHO',    main: 'echo',    band: ['echoLo', 'echoHi'],     ter: ['TIME', 'echoTime', 0, 100, v => `${Math.round(30 + v * 3.2)} ms`, ms => (ms - 30) / 3.2] },
+  { name: 'REVERB',  main: 'reverb',  band: ['reverbLo', 'reverbHi'], ter: ['DECAY', 'reverbDecay', 0, 100, fmtPct], types: true },
+  { name: 'WIDTH',   main: 'width',   band: ['widthLo', 'widthHi'],   ter: ['CENTER', 'widthMid', -100, 100, v => { const r = r1(v * 0.09); return `${r > 0 ? '+' : ''}${r.toFixed(1)} dB`; }, db => db / 0.09] },
+];
+const setText = (el, s) => { if (el.textContent !== s && !el.classList.contains('ed')) el.textContent = s; };   // 'ed': typeIn holds it
+const setHTML = (el, s) => { if (el.innerHTML !== s) el.innerHTML = s; };
+// REVERB: the big knob + type stack centred as one group: (104-px knob at 73.5 .. stack's right edge at 248) about
+// the 251-px column's middle. .rtype's CSS left carries the same shift.
+const RTYPE_SHIFT = -35.25;
+COLS.forEach((cd, i) => {
+  const c = document.createElement('div'); c.className = 'col'; c.style.left = (16 + i * 267) + 'px';
+  rack.appendChild(c);
+  const CW = 251;
+  const pid = POWER_IDS[i], onFn = () => pon(pid);
+  const litFn = () => onFn() && K[cd.main] > 0;   // secondaries: lit only while the panel is on and its primary is up
+  if (cd.sec) {
+    const [lab, id, mn, mx, fm] = cd.sec;
+    const l = document.createElement('div'); l.className = 'secl';
+    l.innerHTML = `<span class="lab" style="font-size:12px;font-weight:400">${lab}</span>&nbsp;&nbsp;<span class="val sl" style="font-size:12px;--n:${slotN(fm, mn, mx)}"></span>`;
+    c.appendChild(l);
+    const vEl = l.querySelector('.val'); typeIn(vEl, id);
+    const kk = knob(c, (CW - 64) / 2, 26, 64, relayKnob(id, { min: mn, max: mx, zero: mn < 0 ? 0 : mn, label: l.querySelector('.lab'), lit: litFn }));
+    renders.push(() => { setText(vEl, fm(K[id])); kk.render(); });
+  } else {
+    const [lo, hi] = cd.band;
+    const bv = document.createElement('div'); bv.className = 'bandv'; bv.style.top = '46px'; c.appendChild(bv);
+    const bd = band(c, 18, 4, CW - 36, 38, lo, hi, litFn);
+    const [lab, id, mn, mx, fm, back] = cd.ter;
+    const tr = document.createElement('div'); tr.className = 'ter'; tr.style.top = '66px'; c.appendChild(tr);
+    const tl = document.createElement('div');
+    tl.innerHTML = `<span class="lab" style="font-size:12px;font-weight:400">${lab}</span>&nbsp;&nbsp;<span class="val sl" style="font-size:12px;--n:${slotN(fm, mn, mx)}"></span>`;
+    const kk = knob(tr, null, null, 46, relayKnob(id, { min: mn, max: mx, zero: mn < 0 ? 0 : mn, label: tl.querySelector('.lab'), lit: litFn }));
+    tr.appendChild(tl); typeIn(tl.querySelector('.val'), id, back);
+    requestAnimationFrame(() => { tr.style.left = ((CW - tr.offsetWidth) / 2) + 'px'; });
+    tr.style.left = '52px';
+    renders.push(() => { setHTML(bv, bandText(K[lo], K[hi])); bd.render(); setText(tl.querySelector('.val'), fm(K[id])); kk.render(); });
+  }
+  if (cd.types) {                              // REVERB TYPE: PLATE / HALL / SPRING beside the big knob
+    const g = document.createElement('div'); g.className = 'rtype';
+    g.setAttribute('role', 'radiogroup'); g.setAttribute('aria-label', 'Reverb type');
+    const tips = ['Plate: bright and dense (Dattorro)', 'Hall: wide and smooth', 'Spring: a boingy tank'];
+    const btns = REVERB_TYPES.map((t, k) => {
+      const b = document.createElement('button'); b.textContent = t; b.title = tips[k];
+      b.setAttribute('role', 'radio');
+      b.addEventListener('click', e => { rtypeSet(k); syncTypes(); e.currentTarget.blur(); });
+      g.appendChild(b); return b;
+    });
+    c.appendChild(g);
+    const syncTypes = () => {
+      const cur = rtypeGet();
+      btns.forEach((b, k) => { b.classList.toggle('on', k === cur); b.setAttribute('aria-checked', String(k === cur)); });
+      g.classList.toggle('unlit', !litFn());
+    };
+    renders.push(syncTypes);
+  }
+  const nm = document.createElement('div'); nm.className = 'namel';
+  nm.innerHTML = `<span class="nm">${cd.name}</span><span class="val sl" style="--n:4"></span>`; c.appendChild(nm);
+  const mv = nm.querySelector('.val'); typeIn(mv, cd.main);
+  const mk = knob(c, (CW - 104) / 2 + (cd.types ? RTYPE_SHIFT : 0), 116, 104, relayKnob(cd.main, { min: 0, max: 100, label: nm.querySelector('.nm'), lit: onFn }));
+  renders.push(() => { setText(mv, fmtPct(K[cd.main])); mk.render(); });
+  // panel power: the light leads the name row; a click on it flips the panel (one host undo step). The name
+  // and its value no longer do (10-08): clicking the value types one.
+  const pw = document.createElement('button'); pw.className = 'pwr on'; pw.innerHTML = '<i></i>';
+  pw.setAttribute('aria-label', cd.name + ' on'); pw.setAttribute('aria-pressed', 'true');
+  nm.insertBefore(pw, nm.firstChild);
+  const syncPower = () => {
+    const on = onFn();
+    c.classList.toggle('off', !on); pw.classList.toggle('on', on); pw.setAttribute('aria-pressed', String(on));
+  };
+  const flip = () => { tset(pid, !onFn()); syncPower(); };
+  pw.addEventListener('click', e => { e.stopPropagation(); flip(); pw.blur(); });
+  renders.push(syncPower);
+});
+
+// ================================================================ master strip
+const eqBand = band($('eq-band-host'), 0, 0, 262, 26, 'eqLo', 'eqHi');
+function syncEq() {
+  // fixed 8-char slots ("20.0 kHz" wide), left-aligned after their labels; labels and the dot never move
+  setText($('eq-lo'), K.eqLo <= 0.02 ? 'off' : fmtHz(K.eqLo));
+  setText($('eq-hi'), K.eqHi >= 0.98 ? 'off' : fmtHz(K.eqHi));
+}
+renders.push(() => { eqBand.render(); syncEq(); });
+
+const fmtDb = v => { const r = r1(v); return `${r > 0 ? '+' : ''}${r.toFixed(1)} dB`; };
+const inK  = knob($('in-k'),  null, null, 46, relayKnob('input',  { min: -60, max: 6, zero: 0, step: 0.5, label: document.querySelector('#m-in .lab') }));
+const outK = knob($('out-k'), null, null, 46, relayKnob('output', { min: -60, max: 6, zero: 0, step: 0.5, label: document.querySelector('#m-out .lab') }));
+typeIn($('in-v'), 'input'); typeIn($('out-v'), 'output');
+renders.push(() => { setText($('in-v'), fmtDb(pget('input'))); setText($('out-v'), fmtDb(pget('output'))); inK.render(); outK.render(); });
+
+const mixT = $('mixtrack');
+function syncMix() {
+  const m = clamp(pget('mix'), 0, 100), w = mixT.clientWidth - 12, x = 6 + w * m / 100;
+  mixT.querySelector('.fill').style.width = (x - 6) + 'px';
+  mixT.querySelector('.hdl').style.left = x + 'px';
+  setText($('mix-v'), `${Math.round(m)}%`);
+}
+renders.push(syncMix);
+typeIn($('mix-v'), 'mix');
+let mixDrag = false;
+const mixReset = () => { pbegin('mix'); pset('mix', PARAM_DEFAULTS.mix); pend('mix'); syncMix(); };
+mixT.addEventListener('dblclick', mixReset);                     // double- or option-click: default, as the knobs
+mixT.addEventListener('pointerdown', e => { if (e.altKey) { e.preventDefault(); mixReset(); return; } mixT.setPointerCapture(e.pointerId); if (!mixDrag) { mixDrag = true; pbegin('mix'); } mixMove(e); });
+mixT.addEventListener('pointermove', e => { if (mixT.hasPointerCapture(e.pointerId)) mixMove(e); });
+const mixUp = () => { if (mixDrag) { mixDrag = false; pend('mix'); } };
+mixT.addEventListener('pointerup', mixUp); mixT.addEventListener('pointercancel', mixUp); mixT.addEventListener('lostpointercapture', mixUp);
+function mixMove(e) { const r = mixT.getBoundingClientRect(); pset('mix', Math.round(clamp((e.clientX - r.left - 6 * fit) / (r.width - 12 * fit), 0, 1) * 100)); syncMix(); }
+
+function syncPreset() {
+  const st = lastState, n = $('pname');
+  setText(n, st ? st.presetName + (st.presetDirty ? ' *' : '') : 'INIT');
+  n.classList.toggle('set', !!st && st.preset >= 0);
+}
+$('p-prev').addEventListener('click', () => nf.presetStep(-1));
+$('p-next').addEventListener('click', () => nf.presetStep(1));
+$('pname').addEventListener('click', e => openPop(e.currentTarget, {
+  items: () => [{ label: 'INIT', v: -1 }, ...PRESET_NAMES.map((nm, i) => ({ label: nm, v: i }))],
+  current: () => lastState ? lastState.preset : -1, search: false, width: 300, pick: v => nf.preset(v) }));
+
+function pill(id, key) {
+  const b = $(id);
+  b.addEventListener('click', () => { tset(key, !tget(key)); syncPills(); b.blur(); });
+}
+function syncPills() {
+  for (const [id, key] of [['m-byp', 'bypass'], ['m-gm', 'gainMatch']]) {
+    const on = tget(key), b = $(id);
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+  }
+  stage.classList.toggle('bypass', tget('bypass'));
+}
+pill('m-byp', 'bypass');
+pill('m-gm', 'gainMatch');
+renders.push(syncPills, syncP);
+
+// ================================================================ header: mode, spin, bank
+let modeShown = null;
+function setModeClass(live) {
+  if (live === modeShown) return;
+  modeShown = live;
+  const m = live ? 'fx' : 'audition';
+  stage.classList.toggle('fx', live);
+  document.querySelectorAll('.tab').forEach(b => { b.classList.toggle('on', b.dataset.mode === m); b.setAttribute('aria-selected', b.dataset.mode === m); });
+  if (live) nestQ.blur();
+  closePop();
+}
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
+  const live = b.dataset.mode === 'fx';
+  if (live !== liveNow()) { hold('live', live); nf.live(live); setModeClass(live); }
+  b.blur();
+}));
+// SPIN during a search spins among the matches (the whole bank otherwise).
+$('spin').addEventListener('click', e => {
+  if (lastState && lastState.canSpin) { dialProg = 0; dialSpinning = true; }
+  const vis = query ? visibleRows() : null;
+  if (vis && vis.length) {
+    const cur = lastState ? lastState.index : -1, pool = vis.length > 1 ? vis.filter(i => i !== cur) : vis;
+    pickRow(pool[Math.floor(Math.random() * pool.length)], true);
+  } else nf.spin();
+  e.currentTarget.blur();
+});
+// Spin history ◀ ▶: the whole sound before / after (ln_back / ln_forward); state says when there is one.
+$('h-back').addEventListener('click', e => { nf.back(); e.currentTarget.blur(); });
+$('h-fwd').addEventListener('click', e => { nf.forward(); e.currentTarget.blur(); });
+function syncHistory() {
+  $('h-back').disabled = !(lastState && lastState.histBack);
+  $('h-fwd').disabled = !(lastState && lastState.histFwd);
+}
+// SpinDial port: rings, 36 rim ticks, hub + cross, two curved spin-arrows. A click runs one
+// eased tween (cubic ease-out, 3 whole turns, ~1.5 s) that lands exactly home. No idle drift.
+const dial = $('dial'), dctx = dial.getContext('2d');
+let dialProg = 1, dialSpinning = false, dialHover = false, dialPress = false, dialDirty = true;
+$('spin').addEventListener('pointerenter', () => { dialHover = true; dialDirty = true; });
+$('spin').addEventListener('pointerleave', () => { dialHover = false; dialPress = false; dialDirty = true; });
+$('spin').addEventListener('pointerdown', () => { dialPress = true; dialDirty = true; });
+addEventListener('pointerup', () => { if (dialPress) { dialPress = false; dialDirty = true; } });
+function stepDial(dt) {
+  if (!dialSpinning) return;
+  dialProg += dt / 1.5;
+  if (dialProg >= 1) { dialProg = 1; dialSpinning = false; }
+  dialDirty = true;
+}
+function drawDial() {
+  if (!dialDirty) return; dialDirty = false;
+  const D = 88, DD = 100, k = DD / 88, c = dctx;         // r2 round 2: drawn in the 88 px design space, shown at 100 px
+  const L = w => w / k;                                   // v1 SpinDial's native stroke weights (px on screen)
+  if (dial.width !== Math.round(DD * B)) { dial.width = dial.height = Math.round(DD * B); }
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, dial.width, dial.height);
+  c.setTransform(B * k, 0, 0, B * k, 0, 0);
+  const cx = D / 2, cy = D / 2, arMax = 36, r = arMax / 1.34, pi = Math.PI;
+  if (dialHover) {                                    // hover halo around the rotor
+    const hg = c.createRadialGradient(cx, cy, r * 0.9, cx, cy, D / 2);
+    hg.addColorStop(0, col(RGB.teal, 0)); hg.addColorStop(0.45, col(RGB.teal, 0.13)); hg.addColorStop(1, col(RGB.teal, 0));
+    c.fillStyle = hg; c.fillRect(0, 0, D, D);
+  }
+  const ease = 1 - Math.pow(1 - dialProg, 3);
+  const spin = dialSpinning ? (ease * TAU * 3) % TAU : 0;
+  const on = (a, rad) => [cx + Math.sin(a) * rad, cy - Math.cos(a) * rad];
+  const dim = dialHover || dialPress ? 1 : 0.8;
+  c.lineCap = 'butt';
+  c.strokeStyle = col(RGB.line, dim);
+  c.lineWidth = L(2); circle(c, cx, cy, r); c.stroke();
+  c.lineWidth = L(1.8); circle(c, cx, cy, r * 0.87); c.stroke();
+  c.strokeStyle = col(RGB.soft, dim); c.lineWidth = L(1); circle(c, cx, cy, r * 0.76); c.stroke();
+  c.strokeStyle = col(RGB.soft, dim * 0.7); c.lineWidth = L(1); c.beginPath();
+  for (let i = 0; i < 36; i++) { const a = spin + TAU * i / 36, [x1, y1] = on(a, r * 0.90), [x2, y2] = on(a, r * 0.99); c.moveTo(x1, y1); c.lineTo(x2, y2); }
+  c.stroke();
+  c.strokeStyle = col(RGB.line, dim); c.lineWidth = L(1.2); circle(c, cx, cy, r * 0.11); c.stroke();
+  c.beginPath(); c.moveTo(cx - r * 0.07, cy); c.lineTo(cx + r * 0.07, cy); c.moveTo(cx, cy - r * 0.07); c.lineTo(cx, cy + r * 0.07); c.stroke();
+  const ar = r * 1.34, head = r * 0.16;
+  const glow = dialSpinning ? (1 - dialProg) * (1 - dialProg) : 0;
+  const ac = mix(RGB.soft, RGB.teal, Math.min(1, glow * 0.85 + (dialPress ? 1 : dialHover ? 0.7 : 0)), dim);
+  c.strokeStyle = ac; c.fillStyle = ac; c.lineWidth = L(2.2);
+  const arrow = (from, to) => {
+    // canvas arc angles: our a (0 = up, clockwise) -> a - pi/2
+    c.beginPath(); c.arc(cx, cy, ar, from - pi / 2, to - pi / 2); c.stroke();
+    const [tx, ty] = on(to, ar), [bx, by] = on(to - 0.22, ar);
+    let dx = tx - bx, dy = ty - by; const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const nx = -dy, ny = dx;
+    c.beginPath(); c.moveTo(tx + dx * head, ty + dy * head); c.lineTo(tx + nx * head * 0.6, ty + ny * head * 0.6);
+    c.lineTo(tx - nx * head * 0.6, ty - ny * head * 0.6); c.closePath(); c.fill();
+  };
+  arrow(-pi * 0.92 + spin, -pi * 0.38 + spin);
+  arrow( pi * 0.38 + spin,  pi * 0.92 + spin);
+  if (glow > 0.01) {                                  // speed glow under the rotor
+    c.globalCompositeOperation = 'lighter';
+    const g = c.createRadialGradient(cx, cy, r * 0.3, cx, cy, ar);
+    g.addColorStop(0, col(RGB.teal, 0)); g.addColorStop(0.8, col(RGB.teal, 0.16 * glow)); g.addColorStop(1, col(RGB.teal, 0));
+    c.fillStyle = g; c.fillRect(0, 0, D, D);
+    c.globalCompositeOperation = 'source-over';
+  }
+}
+
+function syncBank() {
+  const st = lastState || {}, el = $('bank-name');
+  setText(el, st.folder || 'NO FOLDER');
+  el.classList.toggle('missing', !!st.folderMissing);
+  $('bank').title = st.folderMissing ? `${st.folder} (folder missing)` : (st.folder || '');
+}
+const tailPath = (p, max) => { const d = p.slice(0, Math.max(0, p.lastIndexOf('/'))).replace(/^\/Users\/[^/]+/, '~'); return d.length > max ? '…' + d.slice(d.length - max + 1) : d; };
+function bankItems() {
+  const st = lastState || {}, it = [], rec = files.recents || [];
+  if (rec.length) {
+    it.push({ label: 'RECENT', info: true, cls: 'head' });
+    for (const r of rec) it.push({ label: r.name, v: 'r:' + r.path, p: tailPath(r.path, 22), title: r.path });
+  }
+  it.push({ label: 'Choose folder…', v: 'bank', cls: rec.length ? 'sep' : '' });
+  if (st.extracting) it.push({ label: 'Cancel extraction', v: 'cancel', n: `${Math.round((st.extractProgress || 0) * 100)}% · ${st.extractKept || 0} kept` });
+  else it.push({ label: 'Extract drum loops…', v: 'extract' });
+  if (st.extractStatus) it.push({ label: st.extractStatus, info: true });
+  return it;
+}
+$('bank').addEventListener('click', e => openPop(e.currentTarget, {
+  items: bankItems, current: () => 'r:' + files.path, search: false, width: 360,
+  pick: v => {
+    if (v.startsWith('r:')) { if (v.slice(2) !== files.path) nf.openRecent(v.slice(2)); }
+    else if (v === 'bank') nf.bank(); else if (v === 'extract') nf.extract(); else if (v === 'cancel') nf.extractCancel(); } }));
+
+// ================================================================ transport, tempo, pitch
+const playBtn = $('pl-play'), playIco = $('play-ico');
+let playShown = null;
+function syncPlay() {
+  const on = !!val('playing');
+  if (on === playShown) return;
+  playShown = on;
+  playBtn.classList.toggle('on', on);
+  playBtn.setAttribute('aria-pressed', String(on));
+  playIco.innerHTML = on
+    ? '<rect x="4.5" y="3.5" width="3.6" height="13" fill="#eef3f5"/><rect x="11.9" y="3.5" width="3.6" height="13" fill="#eef3f5"/>'
+    : '<path d="M5 3 L16 10 L5 17 Z" fill="#eef3f5"/>';
+}
+function togglePlay() { hold('playing', !val('playing')); nf.play(); syncPlay(); }
+playBtn.addEventListener('click', e => { togglePlay(); e.currentTarget.blur(); });
+function syncLoop() { const on = !!val('loop'), b = $('loop-t'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+$('loop-t').addEventListener('click', e => { const v = !val('loop'); hold('loop', v); nf.loop(v); syncLoop(); e.currentTarget.blur(); });
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space' && e.target.tagName !== 'BUTTON') { e.preventDefault(); togglePlay(); }
+  if (e.key === 'Escape') closePop();
+});
+
+// SNAP pill (on / off) + the footer's tempo button.
+function syncSnap() { const b = $('snap-t'); setText(b, SNAP.on ? 'SNAP HITS' : 'SNAP OFF'); b.classList.toggle('on', SNAP.on); b.setAttribute('aria-pressed', String(SNAP.on)); }
+$('snap-t').addEventListener('click', e => { SNAP.on = !SNAP.on; syncSnap(); e.currentTarget.blur(); });
+// The footer's tempo is what the FILE is (a correction when the guess is wrong), not what
+// plays: that is the tempo cell. The rows are named for what you hear once the loop is
+// stretched to a tempo: counting the file as twice as fast plays it half as fast. From the
+// handles: the trimmed loop read as 1, 2, 4 or 8 bars, once. Auto: back to the filename's
+// tempo, else the whole file read as bars. Double-click (or the last row) types one in place.
+function bpmItems() {
+  const st = lastState || {}, b = st.nativeBpm || 0, items = [];
+  if (b > 0 && b * 2 <= 300) items.push({ label: 'Half-time', n: `file = ${fmtNum(b * 2)}`, title: 'Count the file as twice as fast: synced, it plays half as fast', v: 'dbl' });
+  if (b > 0 && b / 2 >= 30)  items.push({ label: 'Double-time', n: `file = ${fmtNum(b / 2)}`, title: 'Count the file as half as fast: synced, it plays twice as fast', v: 'half' });
+  if (st.hasSample) items.push({ label: 'From the handles', title: 'The trimmed loop is the beat: read it as 1, 2, 4 or 8 bars, bar 1 at the start handle', v: 'fit' });
+  if (st.hasSample) items.push({ label: 'Auto', title: st.tagBpm > 0 ? 'Back to the filename tempo' : 'Read the whole file as 1, 2, 4 or 8 bars', v: 'auto' });
+  items.push({ label: 'Type a BPM…', cls: 'sep', title: 'Or double-click the tempo', v: 'type' });
+  return items;
+}
+const bpmBtn = $('bpm-t'), bpmIn = $('bpm-in');
+let bpmClickT = 0;
+function bpmEdit() {
+  closePop();
+  const st = lastState || {}, w = Math.max(84, parseFloat(bpmBtn.style.width) || 0);
+  bpmIn.style.left = (parseFloat(bpmBtn.style.left) || 0) + ((parseFloat(bpmBtn.style.width) || 0) - w) / 2 + 'px'; bpmIn.style.width = w + 'px';
+  bpmIn.value = st.bpmSource !== 'none' && st.nativeBpm > 0 ? fmtNum(st.nativeBpm) : '';
+  bpmIn.style.display = 'block'; bpmIn.focus(); bpmIn.select();
+}
+function bpmEditEnd(commit) {
+  if (bpmIn.style.display !== 'block') return;
+  if (commit) { const n = parseFloat(bpmIn.value); if (!(n >= 30 && n <= 300)) { bpmIn.select(); return; } nf.bpm(n); }
+  bpmIn.style.display = 'none';
+}
+bpmIn.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') bpmEditEnd(true); if (e.key === 'Escape') bpmEditEnd(false); });
+bpmIn.addEventListener('blur', () => bpmEditEnd(false));
+function bpmPop() {
+  openPop(bpmBtn, { items: bpmItems, current: () => null, search: false, width: 250,
+    pick: v => {
+      const b = (lastState && lastState.nativeBpm) || 0;
+      if (v === 'half') nf.bpm(b / 2);
+      else if (v === 'dbl') nf.bpm(b * 2);
+      else if (v === 'fit') nf.bpmFit();
+      else if (v === 'auto') nf.bpm(0);
+      else if (v === 'type') setTimeout(bpmEdit, 0);
+    } });
+}
+// One click opens the list a beat later, so a double-click can type instead. With no tempo
+// yet there is nothing to halve: a click types.
+bpmBtn.addEventListener('click', () => {
+  clearTimeout(bpmClickT);
+  if (popCfg && popCfg.anchor === bpmBtn) { closePop(); return; }
+  if (!(lastState && lastState.bpmSource !== 'none' && lastState.nativeBpm > 0)) { bpmEdit(); return; }
+  bpmClickT = setTimeout(bpmPop, 220);
+});
+bpmBtn.addEventListener('dblclick', () => { clearTimeout(bpmClickT); bpmEdit(); });
+
+// The tempo cell is what PLAYS. SYNC on: the host's tempo. Drag the value up or down (3 px a
+// BPM, shift = tenths): SYNC goes off and the loop plays at that tempo, pitch held (ln_tempo, a
+// tempo of LoopNest's own, until the next loop). The SYNC button snaps back to the host; SYNC
+// off with nothing dragged is the file's own tempo. Double-click drops a dragged tempo.
+const tempoLine = $('tempo-line');
+let tempoDrag = null, tempoShown = null;
+function syncTempo() {
+  const st = lastState || {}, sync = !!val('sync'), now = performance.now();
+  $('sync').classList.toggle('on', sync);
+  const free = tempoDrag && tempoDrag.bpm ? tempoDrag.bpm : tempoShown && now < tempoShown.until ? tempoShown.bpm : st.freeBpm;
+  const bpm = sync ? st.hostBpm : free > 0 ? free : (st.bpmSource !== 'none' ? st.nativeBpm : 0);
+  const s = bpm > 0 ? fmtNum(bpm) : '--';
+  setHTML(tempoLine, sync
+    ? `<span><span class="hot sl ro" style="--n:3">${s}</span> BPM</span>`
+    : free > 0 ? `<span><span class="sl ro" style="--n:3">${s}</span> BPM</span>`
+    : `<span class="src"><span class="sl" style="--n:3">${s}</span> BPM</span>`);
+}
+$('sync').addEventListener('click', e => { const v = !val('sync'); tempoShown = null; hold('sync', v); nf.sync(v); syncTempo(); e.currentTarget.blur(); });
+tempoLine.addEventListener('pointerdown', e => {
+  const st = lastState || {};
+  if (e.button !== 0 || !st.hasSample || st.bpmSource === 'none') return;
+  const from = val('sync') ? st.hostBpm : st.freeBpm > 0 ? st.freeBpm : st.nativeBpm;
+  if (!(from > 0)) return;
+  tempoDrag = { y: e.clientY, from, bpm: 0 };
+  tempoLine.classList.add('drag'); e.preventDefault(); tempoLine.setPointerCapture(e.pointerId);
+});
+tempoLine.addEventListener('pointermove', e => {
+  if (!tempoDrag) return;
+  const n = Math.trunc((tempoDrag.y - e.clientY) / fit / 3);
+  if (!n && !tempoDrag.bpm) return;                       // a click is not a drag
+  const step = e.shiftKey ? 0.1 : 1;
+  const b = +clamp(Math.round(tempoDrag.from / step) * step + n * step, 30, 300).toFixed(1);
+  if (b === tempoDrag.bpm) return;
+  tempoDrag.bpm = b; tempoShown = { bpm: b, until: performance.now() + 400 };
+  hold('sync', false); nf.tempo(b); syncTempo();
+});
+const tempoDragEnd = () => { if (tempoDrag && tempoDrag.bpm) tempoShown = { bpm: tempoDrag.bpm, until: performance.now() + 400 }; tempoDrag = null; tempoLine.classList.remove('drag'); };
+tempoLine.addEventListener('pointerup', tempoDragEnd);
+tempoLine.addEventListener('pointercancel', tempoDragEnd);
+tempoLine.addEventListener('dblclick', () => { if (!val('sync') && lastState && lastState.freeBpm > 0) { tempoShown = null; nf.tempo(0); } });
+
+const pitchKnob = knob($('pitch-knob'), null, null, 40, relayKnob('pitch', { min: -12, max: 12, zero: 0, step: 1, label: document.querySelector('#pitch .lab') }));
+// whole semitones as the mock prints them; host automation can land between (0.01 st steps)
+const fmtSt = v => { const r = Math.round(v), s = Math.abs(v - r) < 0.005 ? String(r) : v.toFixed(1); return `${v > 0.004 ? '+' : ''}${s} st`; };
+function syncPitch() { setText($('pitch-v'), fmtSt(pget('pitch'))); pitchKnob.render(); }
+renders.push(syncPitch);
+typeIn($('pitch-v'), 'pitch');
+
+// ================================================================ hatch, FX, bin
+// The native HATCH overlay (Source/HatchOverlay) sits over this tile and owns its mouse: the page
+// has no click handler here. Hover / press arrive as ln_hatch, a finished print as ln_hatched.
+const hatchBtn = $('hatch'), hcv = $('hatch-cv'), hctx = hcv.getContext('2d');
+const HK = { w: 194, h: 64 }, HW = { x: 21, y: 8, w: 152, h: 30 };   // stage 2: 196 px key (r2 184), thumbnail 152 (r2 140), same 21 px side margins
+let hatchT0 = -10, thumb = new Float32Array(HW.w);
+const RENDER_S = 1.2, CRACK_S = 0.4;
+let hatchHover = false, hatchedName = '';
+function setHatch(st) {
+  S_.hatch = st;
+  hatchBtn.classList.toggle('idle', st === 'idle');
+  hatchBtn.classList.toggle('busy', st === 'rendering');
+  hatchBtn.classList.toggle('tile', st === 'armed');
+  hatchBtn.classList.toggle('stale', st === 'stale');
+  setText($('hatch-file'), st === 'armed' || st === 'stale' ? ((lastState && lastState.printName) || hatchedName) : '');
+  hatchBtn.setAttribute('aria-label', st === 'armed' ? 'Printed clip, drag onto a track' : st === 'stale' ? 'RE-HATCH' : 'HATCH');
+  if (st === 'idle') makeThumb();
+  redrawHatch();
+}
+function syncHatch() {
+  if (S_.hatch === 'rendering') return;        // the render -> crack animation plays out first
+  const h = lastState ? lastState.hatch : 'none';
+  const want = h === 'armed' ? 'armed' : h === 'stale' ? 'stale' : 'idle';
+  const name = want === 'idle' ? '' : ((lastState && lastState.printName) || hatchedName);
+  if (want !== S_.hatch || name !== $('hatch-file').textContent) setHatch(want);
+}
+function redrawHatch() {
+  if (S_.hatch === 'idle') drawHatch(0, 0);
+  else if (S_.hatch === 'armed' || S_.hatch === 'stale') drawHatch(1, 1);
+}
+// The thumbnail is the trim region of the loaded loop's peaks (what the print renders).
+function makeThumb() {
+  const n = wavePeaks.length, a0 = Math.floor(clamp(pget('start'), 0, 1) * n);
+  const a1 = Math.max(a0 + 1, Math.ceil(clamp(pget('end'), 0, 1) * n)), span = a1 - a0;
+  const on = !!(lastState && lastState.hasSample) && PEAKS.n > 0;
+  for (let i = 0; i < HW.w; i++) {
+    let m = 0; const a = a0 + Math.floor(i * span / HW.w), b = Math.max(a + 1, a0 + Math.floor((i + 1) * span / HW.w));
+    if (on) for (let k = a; k < b && k < n; k++) m = Math.max(m, wavePeaks[k]);
+    thumb[i] = m;
+  }
+}
+function envPath(c, from, to, hh, cy) {
+  c.beginPath(); c.moveTo(HW.x + from, cy);
+  for (let i = from; i < to; i++) c.lineTo(HW.x + i + 0.5, cy - Math.max(0.5, thumb[i] * hh));
+  for (let i = to - 1; i >= from; i--) c.lineTo(HW.x + i + 0.5, cy + Math.max(0.5, thumb[i] * hh));
+  c.closePath();
+}
+function hexPts(c, cx, cy, R) { c.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i; const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R; i ? c.lineTo(x, y) : c.moveTo(x, y); } c.closePath(); }
+// prog 0..1 = render sweep; crack 0..1 = the shell-opening beat after it.
+function drawHatch(prog, crack) {
+  const c = hctx;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, hcv.width, hcv.height);
+  c.setTransform(B, 0, 0, B, 0, 0);
+  const cy = HW.y + HW.h / 2, hh = HW.h / 2 - 2, sx = Math.round(HW.w * prog);
+  // bar ticks under the clip
+  const armed = S_.hatch === 'armed';               // solid-teal tile: marks go dark, like v1's DRAG
+  c.fillStyle = armed ? 'rgba(6,8,9,0.55)' : col(RGB.faint, 1);
+  for (let b = 0; b <= 16; b++) c.fillRect(Math.round(HW.x + HW.w * b / 16), HW.y + HW.h + 2, 1, b % 4 ? 2 : 4);
+  const rest = S_.hatch === 'idle', hov = rest && hatchHover;
+  if (prog < 1) {                                     // unrendered: outline only
+    envPath(c, sx, HW.w, hh, cy); c.strokeStyle = col(RGB.soft, hov ? 0.5 : (rest ? 0.26 : 0.4)); c.lineWidth = 0.8; c.stroke();
+  }
+  if (sx > 0) { envPath(c, 0, sx, hh, cy); c.fillStyle = armed ? 'rgba(6,8,9,0.88)' : col(RGB.teal, 0.9); c.fill(); }
+  if (prog < 1 && S_.hatch === 'rendering') {        // the sweep head
+    const x = HW.x + sx;
+    const g = c.createLinearGradient(x - 24, 0, x, 0);
+    g.addColorStop(0, col(RGB.teal, 0)); g.addColorStop(1, col(RGB.teal, 0.22));
+    c.fillStyle = g; c.fillRect(x - 24, HW.y - 4, 24, HW.h + 8);
+    c.fillStyle = 'rgb(150,255,250)'; c.fillRect(x - 1, HW.y - 5, 2, HW.h + 10);
+  }
+  if (crack === 0 && (rest || S_.hatch === 'rendering')) {   // the closed cell: same object that cracks later
+    const hx = HW.x + HW.w / 2, Rr = 11;
+    c.lineJoin = 'miter';
+    hexPts(c, hx, cy, Rr); c.fillStyle = 'rgba(6,8,9,0.92)'; c.fill();
+    const ha = rest ? (hov ? 1 : 0.5) : 0.7 + 0.3 * prog;
+    if (hov || !rest) { c.save(); c.shadowColor = col(RGB.teal, 0.6); c.shadowBlur = 10 * B; hexPts(c, hx, cy, Rr); c.strokeStyle = col(RGB.teal, ha); c.lineWidth = 1.8; c.stroke(); c.restore(); }
+    hexPts(c, hx, cy, Rr); c.strokeStyle = col(RGB.teal, ha); c.lineWidth = 1.8; c.stroke();
+    hexPts(c, hx, cy, Rr * 0.42); c.fillStyle = col(RGB.teal, 0.16 * ha); c.fill(); c.strokeStyle = col(RGB.teal, ha * 0.8); c.lineWidth = 1.2; c.stroke();
+  }
+  if (crack > 0 && crack < 1) {                       // shell opening: a line-art hex cell splits and fades
+    const e = 1 - Math.pow(1 - crack, 3), a = 1 - crack, R = 11, hx = HW.x + HW.w / 2;
+    c.save(); c.lineWidth = 1.6; c.strokeStyle = col(RGB.teal, a); c.lineJoin = 'miter';
+    for (const dir of [-1, 1]) {
+      c.save();
+      c.beginPath(); c.rect(0, dir < 0 ? 0 : cy, HK.w, dir < 0 ? cy : HK.h); c.clip();
+      c.translate(0, dir * e * 7);
+      hexPts(c, hx, cy, R); c.fillStyle = `rgba(6,8,9,${0.92 * a})`; c.fill(); c.stroke();
+      hexPts(c, hx, cy, R * 0.42); c.lineWidth = 1.2; c.stroke(); c.lineWidth = 1.6;
+      c.restore();
+    }
+    // the crack line: a short zig-zag across the cell
+    c.globalAlpha = a; c.beginPath();
+    const zz = [-R, -R * 0.55, -R * 0.2, R * 0.2, R * 0.55, R];
+    zz.forEach((dx, i) => { const y = cy + (i % 2 ? -1.6 : 1.6); i ? c.lineTo(hx + dx, y) : c.moveTo(hx + dx, y); });
+    c.strokeStyle = col(RGB.line, 0.9); c.lineWidth = 1.2; c.stroke();
+    c.restore(); c.globalAlpha = 1;
+  }
+}
+function stepHatch() {
+  if (S_.hatch !== 'rendering') return;
+  const u = t - hatchT0;
+  if (u < RENDER_S) drawHatch(u / RENDER_S, 0);
+  else if (u < RENDER_S + CRACK_S) drawHatch(1, (u - RENDER_S) / CRACK_S);
+  else { S_.hatch = ''; syncHatch(); }
+}
+be.addEventListener('ln_hatch', h => {
+  if (h && 'hover' in h) { hatchHover = !!h.hover; hatchBtn.classList.toggle('hov', hatchHover); if (S_.hatch === 'idle') redrawHatch(); }
+  if (h && 'press' in h) hatchBtn.classList.toggle('prs', !!h.press);
+});
+// Drag-in: the native drop target over the rack reports an accepted drag's hover; the drop itself lands as ln_files + ln_state.
+be.addEventListener('ln_drop', d => { $('n-drop').classList.toggle('on', !!(d && d.hover)); });
+be.addEventListener('ln_hatched', h => {
+  hatchedName = (h && h.name) || '';
+  if (h && h.ok) { makeThumb(); hatchT0 = t; setHatch('rendering'); }
+  else syncHatch();
+});
+// FX switch: off = a dry print (the rack stays live on the track), on = the chain bakes in
+function syncFx() { const on = !!val('printFx'), b = $('fx'); b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+$('fx').addEventListener('click', e => { const v = !val('printFx'); hold('printFx', v); nf.printFx(v); syncFx(); e.currentTarget.blur(); });
+// BIN: the folder HATCH prints into. A bin is a subfolder of the Prints folder; with no bin
+// picked a print lands loose in Prints itself (`No bin`); native scans the folders each time the popup opens (ln_bins), so a Finder rename or
+// mkdir shows up. The pick is sticky (state.bin). A picked bin whose folder is gone prints into
+// Prints and is never recreated: the chip says NO BIN and the popup says why. There is no
+// standing create row: a typed name that is not a bin yet offers to create it. The last row
+// shows the folder HATCH prints into in Finder (ln_binShow), so the popup says where a bin lives.
+let binList = [], binSig = '';
+const lnBins = Juce.getNativeFunction('ln_bins');
+function binNow() { const st = lastState || {}; return st.bin && !st.binMissing ? st.bin : ''; }
+function syncBin() {
+  const st = lastState || {}, sig = (st.bin || '') + '|' + !!st.binMissing;
+  if (sig === binSig) return;
+  binSig = sig;
+  setText($('bin-path'), binNow() || 'NO BIN');
+  $('bin').title = st.bin && st.binMissing ? `"${st.bin}" is gone: printing loose in Prints` : binNow() ? `Prints / ${binNow()}` : 'No bin: prints land loose in the Prints folder';
+  if (popCfg && popCfg.anchor === $('bin')) renderPop();
+}
+function binItems() {
+  const st = lastState || {}, q = popQ.value.trim().toLowerCase(), items = [];
+  if (q && !binList.some(b => b.toLowerCase() === q)) items.push({ label: 'Create new bin', cls: 'new', v: '\u0000new' });
+  if (st.bin && st.binMissing) items.push({ label: `"${st.bin}" is gone: printing loose in Prints`, info: true });
+  items.push({ label: 'No bin', n: 'loose in Prints', v: '' });
+  for (const b of binList) items.push({ label: b, v: b });
+  items.push({ label: `Show ${binNow() ? `"${binNow()}"` : 'Prints'} in Finder`, cls: 'sep', v: '\u0000show' });
+  return items;
+}
+$('bin').addEventListener('click', e => {
+  const anchor = e.currentTarget;
+  if (popCfg && popCfg.anchor === anchor) { closePop(); return; }
+  const open = () => openPop(anchor, { items: binItems, current: binNow, search: true, placeholder: 'Find a bin, or type a new name', newLabel: 'Create new bin', width: 340,
+    pick: (v, q) => {
+      if (v === '\u0000new') { if (!q.trim()) return false; nf.binNew(q.trim()); }
+      else if (v === '\u0000show') nf.binShow();
+      else nf.bin(v);
+    } });
+  let done = false;
+  const go = list => { if (done) return; done = true; binList = Array.isArray(list) ? list.map(String) : []; open(); };
+  try { Promise.resolve(lnBins()).then(go, () => go(binList)); } catch (err) { go(binList); }
+});
+
+// ================================================================ popup (searchable list)
+const pop = $('pop'), popQ = $('pop-q'), popL = $('pop-list');
+const HATCH_REF = { x: 1452, y: 454, w: 196, h: 66 };   // the native overlay's rect (WebEditor::hatchTileRef)
+let popCfg = null, popHl = 0, overlayOff = false;
+function openPop(anchor, cfg) {
+  if (popCfg && popCfg.anchor === anchor) { closePop(); return; }
+  popCfg = { ...cfg, anchor };
+  const ar = anchor.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+  const left = (ar.left - sr.left) / fit, top = (ar.bottom - sr.top) / fit + 6;
+  pop.style.left = Math.min(left, W - cfg.width - 16) + 'px'; pop.style.width = cfg.width + 'px';
+  popQ.style.display = cfg.search ? '' : 'none';
+  popQ.value = ''; popQ.placeholder = cfg.placeholder || '';
+  pop.classList.add('open');
+  popHl = -1; renderPop();
+  // placed from its real height (the mock estimated 34 px a row, which ignores the list's
+  // 260 px cap and left the tall preset list floating ~220 px above its anchor)
+  const ph = pop.offsetHeight;
+  pop.style.top = (top + ph > H - 10 ? (ar.top - sr.top) / fit - 6 - ph : top) + 'px';
+  // A popup over the HATCH tile would sit under the native overlay: switch the overlay off meanwhile.
+  const px = parseFloat(pop.style.left), py = parseFloat(pop.style.top), pw = pop.offsetWidth, phh = pop.offsetHeight;
+  const hit = px < HATCH_REF.x + HATCH_REF.w && px + pw > HATCH_REF.x && py < HATCH_REF.y + HATCH_REF.h && py + phh > HATCH_REF.y;
+  if (hit && !overlayOff) { overlayOff = true; nf.overlay(false); }
+  if (cfg.search) setTimeout(() => popQ.focus(), 0);
+}
+function closePop() {
+  pop.classList.remove('open'); popCfg = null;
+  if (overlayOff) { overlayOff = false; nf.overlay(true); }
+}
+function popItems() {
+  const q = popQ.value.trim().toLowerCase();
+  return popCfg.items().filter(it => (it.cls || '').includes('new') || it.info || !q || it.label.toLowerCase().includes(q));
+}
+function renderPop() {
+  const items = popItems(), q = popQ.value.trim();
+  popL.innerHTML = '';
+  items.forEach((it, i) => {
+    const li = document.createElement('li');
+    li.className = (it.cls || '') + (it.info ? ' info' : '') + (!it.info && it.v === popCfg.current() ? ' cur' : '') + (i === popHl ? ' hl' : '');
+    const lab = it.cls === 'new' && q && popCfg.newLabel ? `${popCfg.newLabel} "${q}"` : it.label;
+    const a = document.createElement('span'); a.textContent = lab; li.appendChild(a);
+    if (it.n) { const b = document.createElement('span'); b.className = 'n'; b.textContent = it.n; li.appendChild(b); }
+    if (it.p) { const b = document.createElement('span'); b.className = 'p'; b.textContent = it.p; li.appendChild(b); }
+    if (it.title) li.title = it.title;
+    if (!it.info) li.addEventListener('mousedown', e => { e.preventDefault(); choose(it); });
+    popL.appendChild(li);
+  });
+}
+function choose(it) { const r = popCfg.pick(it.v, popQ.value); if (r !== false) closePop(); }
+popQ.addEventListener('input', () => { popHl = 0; renderPop(); });
+popQ.addEventListener('keydown', e => {
+  const items = popItems().filter(it => !it.info);
+  if (e.key === 'ArrowDown') { popHl = Math.min(items.length - 1, popHl + 1); renderPop(); e.preventDefault(); }
+  if (e.key === 'ArrowUp') { popHl = Math.max(0, popHl - 1); renderPop(); e.preventDefault(); }
+  if (e.key === 'Enter') {
+    const q = popQ.value.trim().toLowerCase();
+    const exact = items.find(it => it.label.toLowerCase() === q);
+    const it = exact || items[Math.max(0, popHl)] || items[items.length - 1];
+    if (it) choose(it);
+  }
+  if (e.key === 'Escape') closePop();
+});
+addEventListener('pointerdown', e => { if (popCfg && !pop.contains(e.target) && !popCfg.anchor.contains(e.target)) closePop(); });
+
+// ================================================================ NEST (tape rack)
+// One spine per file in the folder (ln_files). The loaded spine (ln_state.index) sits pulled out of
+// the rack with a wire into the cassette label. A click on a spine loads it (ln_pick), ◀ ▶ step
+// through the rack (through the matches while a search is on), the n / N counter takes a typed
+// number, and search filters the spines by every word typed.
+const rackEl = $('n-rack'), nestQ = $('n-q'), posEl = $('n-pos');
+const wireP = $('wire-p'), wireA = $('wire-a'), wireB = $('wire-b'), railEl = $('n-rail'), thumbEl = $('n-thumb');
+const RACK = { x: 14, y: 58, h: 372 }, PULL = 14, SPW = 256, SPH = 32;
+const CASX = 300, CASY = 92;                       // cassette canvas, nest coords
+const WIRE_X = 292;                                // the wire's vertical run, in the gap between rack and cassette
+let spines = [], sel = -1, query = '', posEdit = false;
+let pending = { i: -1, until: 0 };                 // a pick on its way: shown lit until the load lands
+const bpmTag = nm => { const m = /(\d+) ?bpm/i.exec(nm); return m ? m[1] : ''; };
+function buildRack(names) {
+  rackEl.textContent = '';
+  spines = names.map((nm, i) => {
+    const b = document.createElement('button'); b.className = 'spine'; b.setAttribute('role', 'option'); b.dataset.i = i; b.tabIndex = -1;
+    const lbl = document.createElement('span'); lbl.className = 'lbl';
+    const n1 = document.createElement('span'); n1.className = 'nm'; n1.textContent = nm;
+    const n2 = document.createElement('span'); n2.className = 'bp'; n2.textContent = bpmTag(nm);
+    lbl.append(n1, n2); b.appendChild(lbl); b.title = nm;
+    rackEl.appendChild(b); return b;
+  });
+  sel = -1; pending.i = -1;
+  applySearch();
+  nestShow(shownIndex());
+}
+const visibleRows = () => { const out = []; spines.forEach((b, i) => { if (!b.classList.contains('hide')) out.push(i); }); return out; };
+function shownIndex() {
+  const st = lastState ? lastState.index : -1;
+  if (pending.i >= 0 && (st === pending.i || performance.now() > pending.until)) pending.i = -1;
+  return pending.i >= 0 ? pending.i : st;
+}
+// asSpin: SPIN's own pick among a search's matches, which the spin history records (ln_spinPick).
+function pickRow(i, asSpin) {
+  if (!(i >= 0 && i < spines.length)) return;
+  pending = { i, until: performance.now() + 2000 };
+  nestShow(i); syncNestText();
+  if (asSpin) nf.spinPick(i); else nf.pick(i);
+}
+function stepRack(d) {
+  const vis = visibleRows(); if (!vis.length) return;
+  const k = vis.indexOf(shownIndex());
+  pickRow(vis[k < 0 ? (d > 0 ? 0 : vis.length - 1) : (k + d + vis.length) % vis.length]);
+}
+function applySearch() {
+  query = nestQ.value.trim().toLowerCase();
+  const toks = query.split(/\s+/).filter(Boolean);
+  spines.forEach(b => { const l = b.title.toLowerCase(); b.classList.toggle('hide', toks.length > 0 && !toks.every(w => l.includes(w))); });
+  $('n-search').classList.toggle('q', !!query);
+  syncNestText();
+  if (sel >= 0 && !spines[sel].classList.contains('hide')) scrollRackTo(sel); else rackEl.scrollTop = 0;
+}
+function clearSearch() { if (nestQ.value) { nestQ.value = ''; applySearch(); } }
+nestQ.addEventListener('input', applySearch);
+nestQ.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { clearSearch(); nestQ.blur(); }
+  else if (e.key === 'Enter') { const vis = visibleRows(); if (vis.length) pickRow(vis.includes(shownIndex()) ? shownIndex() : vis[0]); nestQ.blur(); }
+  else if (e.key === 'ArrowDown') { stepRack(1); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { stepRack(-1); e.preventDefault(); }
+  e.stopPropagation();
+});
+$('n-x').addEventListener('click', e => { e.preventDefault(); clearSearch(); nestQ.focus(); });
+rackEl.addEventListener('click', e => { const b = e.target.closest('.spine'); if (!b) return; pickRow(+b.dataset.i); b.blur(); });
+$('n-up').addEventListener('click', e => { stepRack(-1); e.currentTarget.blur(); });
+$('n-dn').addEventListener('click', e => { stepRack(1); e.currentTarget.blur(); });
+// The counter is the bank position; click it to type a loop number.
+posEl.addEventListener('click', () => {
+  const n = (lastState && lastState.count) || 0;
+  if (posEdit || !n) return;
+  posEdit = true;
+  const inp = document.createElement('input'); inp.type = 'text'; inp.inputMode = 'numeric'; inp.spellcheck = false;
+  const cur = shownIndex(); inp.value = cur >= 0 ? String(cur + 1) : '';
+  posEl.textContent = ''; posEl.appendChild(inp); inp.focus(); inp.select();
+  const done = ok => {
+    if (!posEdit) return; posEdit = false;
+    const v = parseInt(inp.value, 10);
+    posEl.textContent = '';
+    if (ok && v >= 1 && v <= n) pickRow(v - 1);
+    syncNestText();
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); e.stopPropagation(); });
+  inp.addEventListener('blur', () => done(false));
+});
+function spineY(i) { return RACK.y + spines[i].offsetTop - rackEl.scrollTop; }
+function scrollRackTo(i) {
+  const b = spines[i]; if (b.classList.contains('hide')) return;
+  const top = b.offsetTop, vh = rackEl.clientHeight, from = rackEl.scrollTop, pad = 14;
+  let to = from;
+  if (top < from + pad) to = top - pad;
+  else if (top + SPH > from + vh - pad) to = top + SPH - vh + pad;
+  rackEl.scrollTop = clamp(Math.round(to), 0, Math.max(0, rackEl.scrollHeight - vh));
+}
+function nestShow(i) {
+  if (!(i >= 0 && i < spines.length)) i = -1;
+  if (i === sel) return;
+  if (sel >= 0 && spines[sel]) { spines[sel].classList.remove('sel'); spines[sel].setAttribute('aria-selected', 'false'); }
+  sel = i;
+  if (i >= 0) { spines[i].classList.add('sel'); spines[i].setAttribute('aria-selected', 'true'); scrollRackTo(i); }
+  else for (const e of [wireP, wireA, wireB]) e.style.opacity = 0;
+}
+function syncNestText() {
+  const st = lastState || {}, n = st.count || 0, cnt = $('n-count'), cur = shownIndex();
+  if (!posEdit) setText(posEl, `${cur >= 0 ? cur + 1 : '-'} / ${n}`);
+  // extraction progress has no slot in the mock: it borrows the loop count (teal, like a search hit)
+  const hits = query ? visibleRows().length : 0;
+  setText(cnt, st.extracting ? `extract ${Math.round((st.extractProgress || 0) * 100)}%`
+              : query ? `${hits} of ${n}` : `${n} ${n === 1 ? 'loop' : 'loops'}`);
+  cnt.classList.toggle('hot', !!st.extracting || !!query);
+}
+function stepNest() {
+  // wire from the loaded spine into the label. Scrolled out of view, it holds at the rack's
+  // top or bottom edge (pointing the way back); filtered out by a search, it hides.
+  if (sel < 0) return;
+  const b = spines[sel], hidden = b.classList.contains('hide');
+  const yRaw = spineY(sel) + SPH / 2, top = RACK.y + 8, bot = RACK.y + RACK.h - 8;
+  const off = yRaw < top || yRaw > bot, ys = clamp(yRaw, top, bot);
+  const yl = CASY + LR.y + LR.h / 2;
+  // off view, the wire's end sits on its own vertical run at the rack edge (no stub back into the rack)
+  const x1 = off ? WIRE_X : RACK.x + PULL + SPW, x2 = CASX + LR.x, r = Math.min(6, Math.abs(yl - ys) / 2);
+  const sg = yl > ys ? 1 : -1;
+  const d = Math.abs(yl - ys) < 1 ? `M${x1} ${ys}H${x2}`
+    : off ? `M${x1} ${ys}V${yl - sg * r}Q${WIRE_X} ${yl} ${WIRE_X + r} ${yl}H${x2}`
+    : `M${x1} ${ys}H${WIRE_X - r}Q${WIRE_X} ${ys} ${WIRE_X} ${ys + sg * r}V${yl - sg * r}Q${WIRE_X} ${yl} ${WIRE_X + r} ${yl}H${x2}`;
+  if (wireP.getAttribute('d') !== d) wireP.setAttribute('d', d);
+  wireA.setAttribute('cx', x1); wireA.setAttribute('cy', ys); wireB.setAttribute('cx', x2); wireB.setAttribute('cy', yl);
+  const u = labelState().line, draw = 1 - Math.pow(1 - u, 2);
+  wireP.style.strokeDasharray = '1 1';
+  wireP.style.strokeDashoffset = String(1 - draw);
+  wireP.style.opacity = hidden ? 0 : 1;
+  wireA.style.opacity = hidden ? 0 : 1;
+  wireB.style.opacity = !hidden && u >= 1 ? 1 : 0;
+  // scroll position rail
+  const vh = rackEl.clientHeight, sh = rackEl.scrollHeight;
+  if (sh <= vh + 1) thumbEl.style.opacity = 0;
+  else {
+    const rh = 360, th = Math.max(24, rh * vh / sh), top2 = (rh - th) * rackEl.scrollTop / (sh - vh);
+    thumbEl.style.opacity = 0.7; thumbEl.style.height = th + 'px'; thumbEl.style.top = top2 + 'px';
+  }
+}
+
+// ================================================================ window resize grip
+// Drags call ln_resize with the scale the pointer asks for; native clamps it and resizes.
+const grip = $('grip');
+let gripDrag = null, gripRaf = 0, gripWant = 0;
+grip.addEventListener('pointerdown', e => {
+  grip.setPointerCapture(e.pointerId); grip.classList.add('on');
+  gripDrag = { x: e.screenX, y: e.screenY, w: innerWidth, h: innerHeight }; e.preventDefault();
+});
+grip.addEventListener('pointermove', e => {
+  if (!gripDrag || !grip.hasPointerCapture(e.pointerId)) return;
+  gripWant = Math.max((gripDrag.w + e.screenX - gripDrag.x) / W, (gripDrag.h + e.screenY - gripDrag.y) / H);
+  if (!gripRaf) gripRaf = requestAnimationFrame(() => { gripRaf = 0; nf.resize(gripWant); });
+});
+const gripUp = () => { gripDrag = null; grip.classList.remove('on'); };
+grip.addEventListener('pointerup', gripUp); grip.addEventListener('pointercancel', gripUp); grip.addEventListener('lostpointercapture', gripUp);
+
+// ================================================================ native events
+let bankSig = '';
+function applyState(st) {
+  const prev = lastState, now = performance.now();
+  lastState = st;
+  // playhead follower: measure the read head's rate while the audition runs
+  if (st.playing && !st.live && prev && prev.playing) {
+    const dv = st.playhead - PH.v, dts = (now - PH.t) / 1000;
+    if (dv > 0 && dts > 0.005 && dts < 0.5) { const r = dv / dts; PH.rate = PH.rate > 0 ? PH.rate * 0.7 + r * 0.3 : r; }
+  } else if (!st.playing) PH.rate = 0;
+  PH.v = +st.playhead || 0; PH.t = now;
+  inPrev = inLvl; lvlT = now;
+  inLvl = Math.max(+st.inL || 0, +st.inR || 0); outLvl = Math.max(+st.outL || 0, +st.outR || 0);
+  if (inLvl > 0.001) lastInT = t;
+  P.tempo = (st.sync ? st.hostBpm : st.nativeBpm) || st.hostBpm || 90;
+
+  setModeClass(liveNow()); syncPlay(); syncLoop(); syncTempo(); syncFx(); syncBin(); syncHatch(); syncPreset(); syncBank(); syncHistory();
+  nestShow(shownIndex()); syncNestText();
+  const bpmS = st.bpmSource !== 'none' && st.nativeBpm > 0 ? fmtNum(st.nativeBpm) : '';
+  if ((st.sample || '') !== PICK.src) startPick(st.sample || '', bpmS, !pickSeen);
+  else PICK.bpm = bpmS;
+  pickSeen = true;
+  if (popCfg && popCfg.anchor === $('bank')) {
+    const sig = JSON.stringify(bankItems());
+    if (sig !== bankSig) { bankSig = sig; renderPop(); }
+  }
+}
+be.addEventListener('ln_state', applyState);
+be.addEventListener('ln_files', f => {
+  const folderChanged = ((f && f.path) || '') !== files.path;
+  files = { folder: (f && f.folder) || '', path: (f && f.path) || '', names: (f && Array.isArray(f.names)) ? f.names.map(String) : [],
+            recents: (f && Array.isArray(f.recents)) ? f.recents.filter(r => r && r.path).map(r => ({ name: String(r.name), path: String(r.path) })) : [] };
+  if (folderChanged) nestQ.value = '';               // a new bank starts unfiltered
+  buildRack(files.names);
+  if (popCfg && popCfg.anchor === $('bank')) renderPop();
+});
+be.addEventListener('ln_peaks', pk => {
+  const path = (pk && pk.path) || '';
+  if (path !== PEAKS.path && PEAKS.seen && path) spinWipeT = t;     // a new loop wipes in left to right
+  const newLoop = path !== PEAKS.path;
+  PEAKS.path = path; PEAKS.name = (pk && pk.name) || ''; PEAKS.seconds = +(pk && pk.seconds) || 0;
+  PEAKS.raw = Float32Array.from((pk && pk.peaks) || []); PEAKS.n = PEAKS.raw.length; PEAKS.seen = true;
+  // hi: one byte a column, sqrt-companded natively (WebEditor kHiColumns)
+  let hi = new Float32Array(0);
+  try { const bin = atob((pk && pk.hi) || ''); hi = new Float32Array(bin.length); for (let i = 0; i < bin.length; i++) { const v = bin.charCodeAt(i) / 255; hi[i] = v * v; } }
+  catch (e) { console.warn('ln_peaks hi: ' + e); }
+  PEAKS.hi = hi;
+  PEAKS.hits = Float64Array.from(((pk && pk.hits) || []).map(Number).filter(h => h >= 0 && h <= 1)).sort();
+  if (newLoop) { VIEW.a = 0; VIEW.b = 1; }
+  computePeaks(); checkScope(true);
+});
+
+// ================================================================ loop
+function renderAll() { renders.forEach(r => r()); }
+let last = performance.now(), fpsFrames = 0, fpsT0 = last, fps = 0, frameFailed = false;
+function frame(now) {
+  // Scheduled first: one frame that throws must not stop every frame after it (U-L1).
+  requestAnimationFrame(frame);
+  try {
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05; if (dt < 0) dt = 0;
+    t += dt;
+    if (relayDirty) { relayDirty = false; renderAll(); }
+    checkScope(false);
+    step(dt);
+    stepFx(dt);
+    updateLevels(dt);
+    stepNest();
+    drawCassette();
+    drawScope();
+    if (modeT > 0.01) drawMeters();
+    stepDial(dt); drawDial(); stepHatch();
+    fpsFrames++;
+    if (now - fpsT0 >= 500) { fps = Math.round(fpsFrames * 1000 / (now - fpsT0)); fpsFrames = 0; fpsT0 = now; }
+  } catch (e) {
+    if (!frameFailed) { frameFailed = true; console.error('frame: ' + ((e && e.stack) || e)); }   // once, not 60 a second
+  }
+}
+
+// ================================================================ scope: trim handles, seek, zoom
+// trimDrag = { id, lastX, v, rel }: the cursor drives the handle directly until shift is held;
+// from then on the drag is relative (shift = a tenth of the motion) so the handle never jumps.
+const MIN_TRIM = 0.001;
+function scopePt(e) { const r = scope.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * SC.w, y: (e.clientY - r.top) / r.height * SC.h }; }
+function handleAt(pt) {
+  if (!(lastState && lastState.hasSample) || pt.y < WA.y - 8 || pt.y > WA.y + WA.h + 8) return null;
+  const xs = n2x(pget('start')), xe = n2x(pget('end'));
+  const ds = xs >= WA.x - 2 && xs <= WA.x + WA.w + 2 ? Math.abs(pt.x - xs) : 1e9;
+  const de = xe >= WA.x - 2 && xe <= WA.x + WA.w + 2 ? Math.abs(pt.x - xe) : 1e9;
+  if (Math.min(ds, de) > 9) return null;
+  return ds < de || (ds === de && pt.x < WA.x + WA.w / 2) ? 'start' : 'end';
+}
+const inWave = pt => pt.x >= WA.x && pt.x <= WA.x + WA.w && pt.y >= WA.y - 20 && pt.y <= WA.y + WA.h + 10;
+// Right-click (or ctrl-click) in the wave: where bar 1 starts, for a file whose downbeat is not
+// its first sample. The spot snaps like a handle does (SNAP on: the nearest hit).
+scope.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (liveNow() || !(lastState && lastState.hasSample)) return;
+  const pt = scopePt(e);
+  if (!inWave(pt)) return;
+  const at = snapN(clamp(x2n(pt.x), 0, 1)), sr = stage.getBoundingClientRect(), a = $('ctx-a');
+  a.style.left = (e.clientX - sr.left) / fit + 'px'; a.style.top = (e.clientY - sr.top) / fit + 'px';
+  if (popCfg && popCfg.anchor === a) closePop();
+  openPop(a, { items: () => [{ label: 'Bar 1 starts here', v: 'set' }].concat(lastState && lastState.barOrigin > 0 ? [{ label: 'Reset bar 1', title: 'Back to the start of the file', v: 'reset' }] : []),
+               current: () => null, search: false, width: 220, pick: v => nf.barOrigin(v === 'set' ? at : 0) });
+});
+scope.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || e.ctrlKey) return;
+  if (liveNow() || !(lastState && lastState.hasSample)) return;
+  const pt = scopePt(e), h = handleAt(pt);
+  if (h) { scope.setPointerCapture(e.pointerId); trimDrag = { id: h, lastX: pt.x, v: pget(h), rel: e.shiftKey }; pbegin(h); e.preventDefault(); return; }
+  if (inWave(pt)) nf.seek(clamp(x2n(pt.x), 0, 1));
+});
+scope.addEventListener('pointermove', e => {
+  const pt = scopePt(e);
+  if (trimDrag && scope.hasPointerCapture(e.pointerId)) {
+    const d = trimDrag;
+    if (e.shiftKey) d.rel = true;
+    d.v = d.rel ? d.v + (pt.x - d.lastX) / WA.w * vspan() * (e.shiftKey ? 0.1 : 1) : x2n(pt.x);
+    d.lastX = pt.x;
+    d.v = d.id === 'start' ? clamp(d.v, 0, pget('end') - MIN_TRIM) : clamp(d.v, pget('start') + MIN_TRIM, 1);
+    // SNAP: the handle lands on the nearest drum hit (d.v stays the raw cursor, so it never
+    // sticks); alt drags free, and so does shift's fine drag. A hit the other handle sits on
+    // is out of reach: stay put.
+    let out = e.altKey || d.rel ? d.v : snapN(d.v);
+    if (d.id === 'start' ? out > pget('end') - MIN_TRIM : out < pget('start') + MIN_TRIM) out = pget(d.id);
+    pset(d.id, out);
+    if (zoomed() && (out < VIEW.a || out > VIEW.b))   // dragged past the edge: the view follows
+      panBy(out < VIEW.a ? out - VIEW.a : out - VIEW.b);
+    return;
+  }
+  const cur = liveNow() || !(lastState && lastState.hasSample) ? '' : handleAt(pt) ? 'ew-resize' : inWave(pt) ? 'pointer' : '';
+  if (scope.style.cursor !== cur) scope.style.cursor = cur;
+});
+// Letting go ends the gesture: native re-reads a following tempo then, never during the drag.
+const trimUp = () => { if (trimDrag) { pend(trimDrag.id); trimDrag = null; } };
+scope.addEventListener('pointerup', trimUp); scope.addEventListener('pointercancel', trimUp); scope.addEventListener('lostpointercapture', trimUp);
+scope.addEventListener('wheel', e => {
+  if (liveNow() || !(lastState && lastState.hasSample) || !PEAKS.n) return;
+  e.preventDefault();
+  const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1, dx = e.deltaX * k, dy = e.deltaY * k;
+  const pt = scopePt(e);
+  if (e.ctrlKey || e.metaKey) {                        // trackpad pinch arrives as ctrl + wheel
+    zoomAt(clamp(x2n(clamp(pt.x, WA.x, WA.x + WA.w)), 0, 1), Math.exp(-dy * (e.ctrlKey && !e.metaKey ? 0.012 : 0.004)));
+    return;
+  }
+  const d = Math.abs(dx) > Math.abs(dy) ? dx : e.shiftKey ? dy : 0;
+  if (d && zoomed()) panBy(d / WA.w * vspan());
+}, { passive: false });
+scope.addEventListener('dblclick', e => { if (inWave(scopePt(e))) setView(0, 1); });
+
+// ================================================================ checks (read-only, for tests)
+const RANGES = { pitch: [-12, 12, 0.01], pitchGlide: [0, 100, 1], input: [-60, 6, 0.1], output: [-60, 6, 0.1],
+  start: [0, 1, 0], end: [0, 1, 0], mix: [0, 100, 1], warp: [0, 100, 0.5], warpRate: [0, 100, 1], drive: [0, 100, 1],
+  driveTone: [-100, 100, 1], flutter: [0, 100, 0.5], flutterRate: [0, 100, 1], echo: [0, 100, 1], reverb: [0, 100, 1],
+  echoLo: [0, 1, 0], echoHi: [0, 1, 0], reverbLo: [0, 1, 0], reverbHi: [0, 1, 0], eqLo: [0, 1, 0], eqHi: [0, 1, 0],
+  width: [0, 100, 1], widthLo: [0, 1, 0], widthHi: [0, 1, 0], reverbDecay: [0, 100, 1], echoTime: [0, 100, 1], widthMid: [-100, 100, 1] };
+const rect = el => { const r = el.getBoundingClientRect(); return { x: +r.left.toFixed(2), y: +r.top.toFixed(2), w: +r.width.toFixed(2), h: +r.height.toFixed(2) }; };
+function check() {
+  const relays = {}, rangeBad = [], defaultBad = [], mathBad = [];
+  for (const id of SLIDER_IDS) {
+    const p = sl[id].properties, v = pget(id), [a, b, iv] = RANGES[id];
+    relays[id] = v;
+    if (!propsOk[id] || p.start !== a || p.end !== b || Math.abs((p.interval || 0) - iv) > 1e-6) rangeBad.push(`${id}: ${p.start}..${p.end} /${p.interval} skew ${p.skew}`);
+    if (Math.abs(v - PARAM_DEFAULTS[id]) > 1e-4) defaultBad.push(`${id}=${v} (default ${PARAM_DEFAULTS[id]})`);
+    const x = a + (b - a) * 0.37, back = fromNorm(id, toNorm(id, x));     // natural -> normalised -> natural
+    if (Math.abs(back - x) > 1e-6 * Math.max(1, Math.abs(b - a))) mathBad.push(`${id}: ${x} -> ${back}`);
+  }
+  for (const id of TOGGLE_IDS) { relays[id] = tget(id); if (tget(id) !== TOGGLE_DEFAULTS[id]) defaultBad.push(`${id}=${tget(id)} (default ${TOGGLE_DEFAULTS[id]})`); }
+  relays.reverbType = rtSeen ? rtypeGet() : null;            // null: no value from the relay yet
+  if (!propsOk.reverbType || (rtRelay.properties.choices || []).join() !== 'Plate,Hall,Spring') rangeBad.push(`reverbType: ${(rtRelay.properties.choices || []).join('/')}`);
+  if (!rtSeen) defaultBad.push('reverbType: no value received from the relay');
+  else if (rtypeGet() !== REVERB_TYPE_DEFAULT) defaultBad.push(`reverbType=${rtypeGet()} (default ${REVERB_TYPE_DEFAULT})`);
+  const litIdx = spines.findIndex(b => b.classList.contains('sel'));
+  let nz = 0, pmax = 0; for (const v of wavePeaks) { if (v > 0.01) nz++; pmax = Math.max(pmax, v); }
+  const ex = { x: +(HATCH_REF.x * fit).toFixed(2), y: +(HATCH_REF.y * fit).toFixed(2), w: +(HATCH_REF.w * fit).toFixed(2), h: +(HATCH_REF.h * fit).toFixed(2) };
+  const hr = rect(hatchBtn);
+  return {
+    errors: (window.__lnErr || []).slice(), warnings: (window.__lnWarn || []).slice(),
+    fonts: [...document.fonts].map(f => `${f.family} ${f.weight} ${f.status}`), fontsStatus: document.fonts.status,
+    fit, inner: [innerWidth, innerHeight], dpr: window.devicePixelRatio, fps,
+    state: lastState ? { sample: lastState.sample, folder: lastState.folder, count: lastState.count, index: lastState.index,
+      live: lastState.live, playing: lastState.playing, hatch: lastState.hatch, printName: lastState.printName, sync: lastState.sync,
+      hostBpm: lastState.hostBpm, nativeBpm: lastState.nativeBpm, bpmSource: lastState.bpmSource, tagBpm: lastState.tagBpm, freeBpm: lastState.freeBpm, barOrigin: lastState.barOrigin, bin: lastState.bin, binMissing: lastState.binMissing } : null,
+    rack: { rows: spines.length, filesNames: files.names.length, countText: $('n-count').textContent, pos: $('n-pos').textContent,
+      litRow: litIdx, litName: litIdx >= 0 ? spines[litIdx].title : null, matchesState: !!lastState && litIdx === lastState.index },
+    bank: $('bank-name').textContent, label: { name: PICK.src, fitted: PICK.name, bpm: PICK.bpm, shown: labelState().text },
+    peaks: { n: PEAKS.n, seconds: PEAKS.seconds, name: PEAKS.name, hits: PEAKS.hits.length, columnsAbove1pct: nz, max: +pmax.toFixed(3), scopeHasWave: scopeSig.includes(PEAKS.path) && PEAKS.n > 0 },
+    relays, reverbTypeReceived: rtSeen, rangeBad, defaultBad, mathRoundTripBad: mathBad,
+    hatch: { rect: hr, expected: ex, match: ['x', 'y', 'w', 'h'].every(k => Math.abs(hr[k] - ex[k]) < 0.51), cls: hatchBtn.className, file: $('hatch-file').textContent },
+    footer: footText, snap: $('snap-t').textContent,
+    mode: stage.classList.contains('fx') ? 'LIVE' : 'AUDITION', tempo: $('tempo-line').textContent, preset: $('pname').textContent,
+    hist: { back: !$('h-back').disabled, fwd: !$('h-fwd').disabled, backRect: rect($('h-back')), fwdRect: rect($('h-fwd')), spinRect: rect($('spin')),
+            matchesState: !!lastState && !$('h-back').disabled === !!lastState.histBack && !$('h-fwd').disabled === !!lastState.histFwd },
+  };
+}
+// A native round trip for every float parameter: set a test value through the page's setter (a
+// gesture, as a knob drag does), then ask the relay for the processor's value again and compare.
+// Restores each parameter to what it was. Writes parameters: tests only.
+let rt = null;
+function roundTrip() {
+  const before = {}, want = {};
+  rt = { running: true };
+  for (const id of SLIDER_IDS) {
+    before[id] = pget(id);
+    const [a, b, iv] = RANGES[id]; let x = id === 'warp' ? 25 : a + (b - a) * (id === 'end' ? 0.75 : 0.25);
+    if (iv > 0) x = a + iv * Math.round((x - a) / iv);
+    want[id] = x; pbegin(id); pset(id, x); pend(id);
+  }
+  setTimeout(() => {
+    for (const id of SLIDER_IDS) { sl[id].scaledValue = NaN; be.emitEvent('__juce__slider' + id, { eventType: 'requestInitialUpdate' }); }
+    setTimeout(() => {
+      const bad = [], got = {};
+      for (const id of SLIDER_IDS) { got[id] = pget(id); if (!(Math.abs(got[id] - want[id]) < 1e-3 * Math.max(1, RANGES[id][1] - RANGES[id][0]))) bad.push(`${id}: set ${want[id]} got ${got[id]}`); }
+      for (const id of SLIDER_IDS) { pbegin(id); pset(id, before[id]); pend(id); }
+      rt = { running: false, checked: SLIDER_IDS.length, bad, warp: { set: want.warp, got: got.warp } };
+    }, 400);
+  }, 400);
+  return 'started';
+}
+window.__ln = Object.freeze({
+  state: () => lastState,
+  files: () => files,
+  check,
+  roundTrip, roundTripResult: () => rt,
+  setParam: (id, v) => { pbegin(id); pset(id, v); pend(id); return pget(id); },   // the knob path (tests)
+  view: () => ({ ...VIEW }), setView: (a, b) => { setView(a, b); return { ...VIEW }; },
+  getParam: id => pget(id),
+  reverbType: () => rtypeGet(), setReverbType: i => { rtypeSet(i); return rtypeGet(); },   // the selector's path (tests); -1 = no value yet
+  snap: () => SNAP.on, setSnap: on => { SNAP.on = !!on; syncSnap(); return SNAP.on; },
+  snapN, bars: barsOf, hits: () => Array.from(PEAKS.hits),
+});
+
+// No WebKit menu (Reload, Back, Inspect) anywhere but a text field's own; the scope opens its
+// own (U-L5). No file lands on the page itself either: only the native view over the rack takes
+// drops, and WebKit would open a file dropped elsewhere in its media player (B6). dropEffect
+// 'none' refuses it, so a HATCH drag let go over the plugin ends as cancelled (U-M5).
+document.addEventListener('contextmenu', e => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
+document.addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'; });
+document.addEventListener('drop', e => e.preventDefault());
+
+// ================================================================ init
+resize();
+syncPlay(); syncLoop(); syncTempo(); syncFx(); syncBin(); syncPreset(); syncBank(); syncNestText(); syncSnap();
+setHatch('idle');
+setModeClass(false);
+for (const e of [wireP, wireA, wireB]) e.style.opacity = 0;   // no loaded row until ln_state says so
+renderAll();
+addEventListener('resize', () => { resize(); syncMix(); scopeSig = ''; });
+// Moving the window to a display with another pixel density fires no resize: re-size the canvases.
+(function watchDpr() {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+  mq.addEventListener('change', () => { resize(); scopeSig = ''; watchDpr(); }, { once: true });
+})();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { PICK.name = labelName(PICK.src); buildShell(); buildScopeF(); checkScope(true); dialDirty = true; redrawHatch(); });
+requestAnimationFrame(frame);
+nf.ready();                                  // native answers with ln_files, ln_peaks, ln_state
+</script>
+</body>
+</html>
