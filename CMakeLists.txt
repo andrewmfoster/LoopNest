@@ -11,8 +11,10 @@ project(LoopNest VERSION 2.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# JUCE is vendored inside this project (per-project checkout).
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/JUCE JUCE)
+# JUCE is vendored inside this project (per-project checkout). LOOPNEST_JUCE_DIR points the
+# build at another JUCE checkout of the same pinned version.
+set(LOOPNEST_JUCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/JUCE" CACHE PATH "JUCE checkout to build against")
+add_subdirectory(${LOOPNEST_JUCE_DIR} JUCE)
 
 # v2 (branch v2; the effect build proven in docs/spike-fx-sync.md): an AUDIO EFFECT.
 # Released as plain LoopNest (Andrew, 10-18): the same bundle names and bundle id as
@@ -52,8 +54,8 @@ juce_add_binary_data(LoopNestData SOURCES
     fonts/JetBrainsMono-Regular.ttf
     fonts/JetBrainsMono-Bold.ttf
     ui/index.html
-    JUCE/modules/juce_gui_extra/native/javascript/index.js
-    JUCE/modules/juce_gui_extra/native/javascript/check_native_interop.js
+    ${LOOPNEST_JUCE_DIR}/modules/juce_gui_extra/native/javascript/index.js
+    ${LOOPNEST_JUCE_DIR}/modules/juce_gui_extra/native/javascript/check_native_interop.js
 )
 
 set(LOOPNEST_UI_SOURCES

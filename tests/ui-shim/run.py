@@ -11,11 +11,11 @@ mock's reference shots.
                                      open http://127.0.0.1:8765/ with shim.js injected)
 Needs python.org 3.10 (playwright + PIL live there).
 """
-import argparse, http.server, json, pathlib, socketserver, sys, threading
+import argparse, http.server, json, os, pathlib, socketserver, sys, threading
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-JS = ROOT / "JUCE/modules/juce_gui_extra/native/javascript"
+JS = pathlib.Path(os.environ.get("LOOPNEST_JUCE_DIR", ROOT / "JUCE")) / "modules/juce_gui_extra/native/javascript"
 FILES = {
     "index.html": ROOT / "ui/index.html",
     "index.js": JS / "index.js",
