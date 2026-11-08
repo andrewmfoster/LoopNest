@@ -34,3 +34,6 @@ email-scrub-prompt.md
 /icon/loopnest-social.png
 /icon/banner.src.html
 /tools/
+
+# Claude Code per-machine permissions (can hold approved commands verbatim)
+.claude/settings.local.json
