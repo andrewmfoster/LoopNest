@@ -21,8 +21,7 @@ grid (barOrigin) is display only. The handles snap to detected drum hits.
 
 JUCE 8 is a pinned submodule at `./JUCE` (fresh clone: `--recurse-submodules`). C++17, CMake,
 macOS arm64. The commands below use a Release build dir `build-spike/` (untracked; configure a
-fresh one with `cmake -B build-spike -DCMAKE_BUILD_TYPE=Release`). It exists in the v2 worktree,
-not the main checkout, whose `build/` is a stale Debug tree: don't build into it.
+fresh one with `cmake -B build-spike -DCMAKE_BUILD_TYPE=Release`).
 
 ```bash
 cmake --build build-spike -j8
@@ -38,7 +37,6 @@ sets that used v1 then show that device missing (v1 is `LpNs`, v2 `LpSx`).
 
 ```bash
 V=~/Library/Audio/Plug-Ins/VST3; C=~/Library/Audio/Plug-Ins/Components
-rm -rf "$V/LoopNest Spike.vst3" "$C/LoopNest Spike.component"   # once: the pre-rename build, same LpSx/Wndr (a duplicate)
 rm -rf "$V/LoopNest.vst3" "$C/LoopNest.component"
 cp -R "build-spike/LoopNest_artefacts/Release/VST3/LoopNest.vst3" "$V/"
 cp -R "build-spike/LoopNest_artefacts/Release/AU/LoopNest.component" "$C/"
